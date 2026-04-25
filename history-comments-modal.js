@@ -307,6 +307,12 @@
           startTime: value.startTime || value.hora || value.time || '',
           endTime: value.endTime || '',
           timestamp: timestampValue(rawTimestamp),
+          date:
+            value.date ||
+            value.dataISO ||
+            value.data ||
+            value.createdAtDate ||
+            '',
           createdAtText:
             value.createdAtText ||
             value.data ||
@@ -349,6 +355,7 @@
             text: message,
             startTime,
             endTime,
+            date: dateKey,
             timestamp: timestampValue(rawTimestamp),
             createdAtText: note.updatedAtText || note.createdAtText || `${dateKey}${startTime ? ' ' + startTime : ''}`
           });
@@ -436,7 +443,12 @@
         : '';
 
       return `
-        <article class="history-comment-card ${item.type === 'note' ? 'is-note' : ''}">
+        <article class="history-comment-card ${item.type === 'note' ? 'is-note' : ''}"
+          data-machine="${esc(item.machine || '')}"
+          data-date="${esc(item.date || item.createdAtText || '')}"
+          data-start-time="${esc(item.startTime || '')}"
+          data-end-time="${esc(item.endTime || '')}"
+          data-type="${esc(item.type || '')}">
           <div class="history-comment-card-top">
             <div class="history-comment-machine">
               <i class="fas ${item.type === 'note' ? 'fa-sticky-note' : 'fa-industry'}"></i>
@@ -449,7 +461,13 @@
           <div class="history-comment-text">${esc(item.text)}</div>
           <div class="history-comment-footer">
             <span><i class="fas fa-user"></i> ${esc(item.author || 'Usuário')}</span>
-            <span>${esc(item.source || '')}</span>
+            <div class="history-comment-footer-actions">
+              <button type="button" class="history-comment-goto-btn" data-history-comment-goto>
+                <i class="fas fa-crosshairs"></i>
+                Ver no gráfico
+              </button>
+              <span>${esc(item.source || '')}</span>
+            </div>
           </div>
         </article>
       `;

@@ -1565,3 +1565,72 @@ button[onclick*="exportHistoryPdf"] {
     margin-top: 10px !important;
   }
 }
+
+
+/* Atalho do comentário para o gráfico */
+.history-comment-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.history-comment-goto-btn {
+  border: 1px solid rgba(37, 99, 235, .22);
+  background: #2563eb;
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, .20);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+
+.history-comment-goto-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, .26);
+}
+
+.history-comment-card.is-note .history-comment-goto-btn {
+  background: #d97706;
+  border-color: rgba(217, 119, 6, .25);
+  box-shadow: 0 8px 18px rgba(217, 119, 6, .18);
+}
+
+.wm-shortcut-highlight {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  z-index: 80;
+  background: #0f172a;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
+  padding: 9px 13px;
+  font-size: 12px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 16px 34px rgba(15,23,42,.24);
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .history-comment-footer-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .history-comment-goto-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
