@@ -1,14 +1,20 @@
 // ================= GRÁFICOS DE HISTÓRICO =================
-// V14 - Ordenação cronológica corrigida por data/hora real do registro.
+// WMoldes - versão profissional segura
+// Corrige definitivamente "Canvas is already in use" destruindo qualquer instância do Chart.js antes de recriar.
+
 (function () {
   'use strict';
 
-  let chart = null;
+  let historyChartInstance = null;
   let currentData = [];
   let displayedData = [];
   let currentMachine = '';
   let currentDate = '';
-  const chartType = 'line';
+  let chartType = 'line';
+  let isLoadingHistory = false;
+  let historyListenerRef = null;
+  let historyListenerHandlers = [];
+  let knownHistoryEntries = {};
 
   const CORES = {
     molde: '#2563eb',
@@ -17,18 +23,16 @@
     funil: '#6b7280'
   };
 
-  // Ao abrir, Moldes e Blanks já aparecem. Neck Rings e Funís ficam opcionais.
-  let datasetVisibility = {
+  const datasetVisibility = {
     molde: true,
     blank: true,
     neckring: false,
     funil: false
   };
 
-  let historyListenerRef = null;
-  let historyListenerHandlers = [];
-  let knownHistoryEntries = {};
-  let isLoadingHistory = false;
+  function $(id) {
+    return document.getElementById(id);
+  }
 
   function pad2(value) {
     return String(value).padStart(2, '0');
@@ -48,6 +52,11 @@
     return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   }
 
+  function getDateISOFromBR(dataBR) {
+    const date = parseBRDate(dataBR);
+    return date ? formatISODate(date) : '';
+  }
+
   function addDays(dataBR, days) {
     const date = parseBRDate(dataBR);
     if (!date) return dataBR;
@@ -55,9 +64,9 @@
     return formatBRDate(date);
   }
 
-  function getDateISOFromBR(dataBR) {
-    const date = parseBRDate(dataBR);
-    return date ? formatISODate(date) : '';
+  function toMinutes(time) {
+    const [h, m] = String(time || '00:00').split(':').map(Number);
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
   }
 
   function getActivePeriod() {
@@ -77,47 +86,14 @@
       case 'turno3':
         return { start: '22:00', end: '06:00', includeNextDate: true };
       case 'custom': {
-        const startTime = document.getElementById('customStartTime')?.value || '00:00';
-        const endTime = document.getElementById('customEndTime')?.value || '23:59';
+        const startTime = $('customStartTime')?.value || '00:00';
+        const endTime = $('customEndTime')?.value || '23:59';
         return { start: startTime, end: endTime, includeNextDate: toMinutes(startTime) > toMinutes(endTime) };
       }
       case '24h':
       default:
         return { start: '00:00', end: '23:59', includeNextDate: false };
     }
-  }
-
-  function toMinutes(time) {
-    const [h, m] = String(time || '00:00').split(':').map(Number);
-    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-  }
-
-
-  function getChronologicalOrder(record, period = getActivePeriod()) {
-    const minutes = (Number(record.horaNum) || 0) * 60 + (Number(record.minutoNum) || 0);
-    const range = getPeriodRange(period);
-    const startMinutes = toMinutes(range.start);
-    const endMinutes = toMinutes(range.end);
-    const recordDate = record.data || record.dataISO || '';
-    const nextBR = addDays(currentDate, 1);
-    const nextISO = getDateISOFromBR(nextBR);
-
-    // Em períodos que atravessam meia-noite, o dia seguinte entra depois de 24:00.
-    if (startMinutes > endMinutes) {
-      if (recordDate === nextBR || recordDate === nextISO) return 1440 + minutes;
-      return minutes;
-    }
-
-    return minutes;
-  }
-
-  function sortHistoryRecords(records, period = getActivePeriod()) {
-    return [...(records || [])].sort((a, b) => {
-      const aOrder = getChronologicalOrder(a, period);
-      const bOrder = getChronologicalOrder(b, period);
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return (a.timestamp || 0) - (b.timestamp || 0);
-    });
   }
 
   function recordDateBR(record) {
@@ -131,12 +107,13 @@
   }
 
   function normalizeRecord(key, record) {
-    const date = new Date(record.timestamp || 0);
-    const hora = Number.isFinite(record.horaNum) ? record.horaNum : date.getHours();
-    const minuto = Number.isFinite(record.minutoNum) ? record.minutoNum : date.getMinutes();
+    const date = new Date(record.timestamp || Date.now());
+    const hora = Number.isFinite(record.horaNum) ? Number(record.horaNum) : date.getHours();
+    const minuto = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : date.getMinutes();
+
     return {
       id: key,
-      timestamp: record.timestamp || 0,
+      timestamp: Number(record.timestamp || 0),
       data: recordDateBR(record),
       dataISO: record.dataISO || getDateISOFromBR(recordDateBR(record)),
       hora: record.hora || `${pad2(hora)}:${pad2(minuto)}`,
@@ -148,6 +125,32 @@
       funil: record.funil !== undefined ? Number(record.funil || 0) : Number(record.new_funil || 0),
       tipo: record.tipo || 'hourly'
     };
+  }
+
+  function getChronologicalOrder(record, period = getActivePeriod()) {
+    const minutes = (Number(record.horaNum) || 0) * 60 + (Number(record.minutoNum) || 0);
+    const range = getPeriodRange(period);
+    const startMinutes = toMinutes(range.start);
+    const endMinutes = toMinutes(range.end);
+    const recordDate = record.data || record.dataISO || '';
+    const nextBR = addDays(currentDate, 1);
+    const nextISO = getDateISOFromBR(nextBR);
+
+    if (startMinutes > endMinutes) {
+      if (recordDate === nextBR || recordDate === nextISO) return 1440 + minutes;
+      return minutes;
+    }
+
+    return minutes;
+  }
+
+  function sortHistoryRecords(records, period = getActivePeriod()) {
+    return [...(records || [])].sort((a, b) => {
+      const ao = getChronologicalOrder(a, period);
+      const bo = getChronologicalOrder(b, period);
+      if (ao !== bo) return ao - bo;
+      return (a.timestamp || 0) - (b.timestamp || 0);
+    });
   }
 
   function buildRecordSignature(record) {
@@ -165,48 +168,9 @@
     ].join('|');
   }
 
-  async function getHistoryFromFirebase(machineId, dataBR, period) {
-    return new Promise((resolve, reject) => {
-      if (!machineId) {
-        reject(new Error('Máquina não especificada'));
-        return;
-      }
-      if (typeof historicoRef === 'undefined') {
-        console.error('historicoRef não está definido');
-        resolve([]);
-        return;
-      }
-
-      const range = getPeriodRange(period);
-      const acceptedBRDates = new Set([dataBR]);
-      const acceptedISODates = new Set([getDateISOFromBR(dataBR)]);
-      if (range.includeNextDate) {
-        const nextBR = addDays(dataBR, 1);
-        acceptedBRDates.add(nextBR);
-        acceptedISODates.add(getDateISOFromBR(nextBR));
-      }
-
-      historicoRef.child(machineId).once('value')
-        .then(snapshot => {
-          const records = snapshot.val() || {};
-          const resultados = [];
-          Object.keys(records).forEach(key => {
-            const normalized = normalizeRecord(key, records[key] || {});
-            if (acceptedBRDates.has(normalized.data) || acceptedISODates.has(normalized.dataISO)) {
-              resultados.push(normalized);
-            }
-          });
-          resolve(sortHistoryRecords(resultados, period));
-        })
-        .catch(error => {
-          console.error('Erro ao buscar histórico:', error);
-          resolve([]);
-        });
-    });
-  }
-
   function filtrarPorPeriodo(dados, period) {
     const range = getPeriodRange(period);
+
     if (period === '24h') {
       return dados.filter(item => item.data === currentDate || item.dataISO === getDateISOFromBR(currentDate));
     }
@@ -230,34 +194,78 @@
     });
   }
 
+  function destroyChart(canvas) {
+    try {
+      if (historyChartInstance && typeof historyChartInstance.destroy === 'function') {
+        historyChartInstance.destroy();
+      }
+    } catch (err) {
+      console.warn('Erro ao destruir gráfico local:', err);
+    }
+
+    try {
+      if (window.Chart && canvas) {
+        const existing = Chart.getChart(canvas);
+        if (existing && typeof existing.destroy === 'function') {
+          existing.destroy();
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao destruir gráfico do canvas:', err);
+    }
+
+    try {
+      if (window.historyChart && typeof window.historyChart.destroy === 'function') {
+        window.historyChart.destroy();
+      }
+    } catch (err) {
+      console.warn('Erro ao destruir window.historyChart:', err);
+    }
+
+    historyChartInstance = null;
+    window.historyChart = null;
+  }
+
   function preencherSelectData() {
-    const select = document.getElementById('historyDate');
+    const select = $('historyDate');
     if (!select) return;
+
     select.innerHTML = '';
+
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
+
     for (let i = 0; i < 30; i++) {
       const data = new Date(hoje);
       data.setDate(hoje.getDate() - i);
+
       const dataBR = formatBRDate(data);
       const option = document.createElement('option');
+
       option.value = dataBR;
       option.textContent = dataBR + (i === 0 ? ' (Hoje)' : '');
       select.appendChild(option);
     }
-    if (select.options.length > 0) {
-      select.selectedIndex = 0;
-      currentDate = select.value;
-    }
+
+    currentDate = select.value || formatBRDate(hoje);
   }
 
   function preencherSelectMaquina() {
-    const select = document.getElementById('historyMachineSelect');
+    const select = $('historyMachineSelect');
     if (!select) return;
-    select.innerHTML = '<option value="">Selecione uma máquina</option>';
+
+    select.innerHTML = '';
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Selecione uma máquina';
+    select.appendChild(placeholder);
+
     let maquinas = [];
+
     if (window.allAdminMachines) maquinas = Object.keys(window.allAdminMachines).sort();
     else if (window.allMachinesData) maquinas = Object.keys(window.allMachinesData).sort();
+
     maquinas.forEach(maquina => {
       const option = document.createElement('option');
       option.value = maquina;
@@ -266,192 +274,64 @@
     });
   }
 
-  function injectShiftButtons() {
-    const periodContainer = document.querySelector('.period-selector, .period-options, .period-buttons');
-    if (!periodContainer || document.querySelector('[data-period="shift1"]')) return;
+  async function getHistoryFromFirebase(machineId, dataBR, period) {
+    if (!machineId) return [];
 
-    const btnClass = 'period-btn period-option';
-    const existing24 = periodContainer.querySelector('[data-period="24h"], [data-period="day"]');
-    if (existing24 && !existing24.getAttribute('data-period')) existing24.setAttribute('data-period', '24h');
-
-    const buttons = [
-      { period: 'shift1', label: 'Turno 1<br><small>06:00 - 14:00</small>' },
-      { period: 'shift2', label: 'Turno 2<br><small>14:00 - 22:00</small>' },
-      { period: 'shift3', label: 'Turno 3<br><small>22:00 - 06:00</small>' }
-    ];
-
-    const custom = periodContainer.querySelector('[data-period="custom"]');
-    buttons.forEach(cfg => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = btnClass;
-      button.setAttribute('data-period', cfg.period);
-      button.innerHTML = cfg.label;
-      if (custom) periodContainer.insertBefore(button, custom);
-      else periodContainer.appendChild(button);
-    });
-  }
-
-  function configurarEventos() {
-    const machineSelect = document.getElementById('historyMachineSelect');
-    if (machineSelect) {
-      const novoSelect = machineSelect.cloneNode(true);
-      machineSelect.parentNode.replaceChild(novoSelect, machineSelect);
-      novoSelect.addEventListener('change', function () {
-        currentMachine = this.value;
-        const triggerButton = document.querySelector('.machine-select-button');
-        const buttonText = triggerButton?.querySelector('.selected-machine-text');
-        if (buttonText) buttonText.textContent = this.value ? `Máquina ${this.value}` : 'Selecionar máquina';
-        if (this.value && currentDate) carregarDados();
-      });
+    if (typeof historicoRef === 'undefined' || !historicoRef) {
+      console.error('historicoRef não está definido');
+      return [];
     }
 
-    const dateSelect = document.getElementById('historyDate');
-    if (dateSelect) {
-      const novoDateSelect = dateSelect.cloneNode(true);
-      dateSelect.parentNode.replaceChild(novoDateSelect, dateSelect);
-      novoDateSelect.addEventListener('change', function () {
-        currentDate = this.value;
-        const machine = document.getElementById('historyMachineSelect')?.value;
-        if (machine) carregarDados();
-      });
+    const range = getPeriodRange(period);
+    const acceptedBRDates = new Set([dataBR]);
+    const acceptedISODates = new Set([getDateISOFromBR(dataBR)]);
+
+    if (range.includeNextDate) {
+      const nextBR = addDays(dataBR, 1);
+      acceptedBRDates.add(nextBR);
+      acceptedISODates.add(getDateISOFromBR(nextBR));
     }
 
-    removerBotoesDesnecessarios();
-    inserirBotaoTutorial();
-    inserirBotaoPdf();
-  }
-
-  function removerBotoesDesnecessarios() {
-    const selectors = ['.btn-generate', '#toggleChartBtn'];
-    selectors.forEach(selector => {
-      document.querySelectorAll(selector).forEach(btn => {
-        const wrapper = btn.closest('.history-action, .action-button-wrapper, .chart-action') || btn;
-        wrapper.style.display = 'none';
-        wrapper.setAttribute('aria-hidden', 'true');
-      });
-    });
-  }
-
-
-  function inserirBotaoTutorial() {
-    // V12: desativado para evitar criação no gráfico.
-  }
-
-  function inserirBotaoPdf() {
-    // V12: desativado para evitar criação no gráfico.
-  }
-
-  function updateChartTypeButton() {
-    const btn = document.getElementById('toggleChartBtn');
-    if (!btn) return;
-    btn.innerHTML = chartType === 'line'
-      ? '<i class="fas fa-chart-bar"></i> Barras'
-      : '<i class="fas fa-chart-line"></i> Linha';
-  }
-
-  function toggleChartType() {
-    criarGrafico(displayedData.length ? displayedData : currentData);
-  }
-
-  async function carregarDados() {
-    if (isLoadingHistory) return;
-
-    const machine = document.getElementById('historyMachineSelect')?.value || '';
-    const data = document.getElementById('historyDate')?.value || '';
-    if (!machine) {
-      showAlert('erro', 'Selecione uma máquina');
-      return;
-    }
-    if (!data) {
-      showAlert('erro', 'Selecione uma data');
-      return;
-    }
-
-    currentMachine = machine;
-    currentDate = data;
-    const period = getActivePeriod();
-
-    isLoadingHistory = true;
-    mostrarLoading();
     try {
-      const dados = await getHistoryFromFirebase(machine, data, period);
-      currentData = dados;
-      knownHistoryEntries = {};
-      dados.forEach(item => { knownHistoryEntries[item.id] = buildRecordSignature(item); });
+      const snapshot = await historicoRef.child(machineId).once('value');
+      const records = snapshot.val() || {};
+      const resultados = [];
 
-      displayedData = sortHistoryRecords(filtrarPorPeriodo(dados, period), period);
-      if (displayedData.length === 0) {
-        mostrarEmptyStateGrafico(machine, data, period);
-        criarGraficoVazio();
-        atualizarTabela([]);
-        atualizarInsights([]);
-        abrirModalSemDados(machine, data, period);
-      } else {
-        esconderEmptyStateGrafico();
-        criarGrafico(displayedData);
-        atualizarTabela(displayedData);
-        atualizarInsights(displayedData);
-      }
-      setupRealtimeHistoryListener(machine, data);
+      Object.keys(records).forEach(key => {
+        const normalized = normalizeRecord(key, records[key] || {});
+        if (acceptedBRDates.has(normalized.data) || acceptedISODates.has(normalized.dataISO)) {
+          resultados.push(normalized);
+        }
+      });
+
+      return sortHistoryRecords(resultados, period);
     } catch (error) {
-      console.error('Erro ao carregar dados:', error);
-      showAlert('erro', 'Erro ao carregar dados: ' + error.message);
-    } finally {
-      esconderLoading();
-      isLoadingHistory = false;
+      console.error('Erro ao buscar histórico:', error);
+      return [];
     }
   }
 
-  function setupRealtimeHistoryListener(machineId, dataBR) {
-    if (historyListenerRef && historyListenerHandlers.length) {
-      historyListenerHandlers.forEach(handler => {
-        try {
-          historyListenerRef.off('child_added', handler);
-          historyListenerRef.off('child_changed', handler);
-        } catch (err) {
-          console.warn('Erro ao remover listeners antigos:', err);
-        }
-      });
-    }
+  function ajustarLarguraGrafico(pointCount) {
+    const inner = document.querySelector('.chart-inner');
+    const scroll = document.querySelector('.chart-scroll');
+    if (!inner) return;
 
-    const handler = function (snapshot) {
-      const normalizedRecord = normalizeRecord(snapshot.key, snapshot.val() || {});
-      const period = getActivePeriod();
-      const range = getPeriodRange(period);
-      const acceptedDates = new Set([dataBR, getDateISOFromBR(dataBR)]);
-      if (range.includeNextDate) {
-        acceptedDates.add(addDays(dataBR, 1));
-        acceptedDates.add(getDateISOFromBR(addDays(dataBR, 1)));
-      }
+    const calculatedWidth = Math.max(1100, pointCount * (chartType === 'bar' ? 80 : 95));
+    inner.style.minWidth = `${calculatedWidth}px`;
+    inner.style.width = `${calculatedWidth}px`;
 
-      if (acceptedDates.has(normalizedRecord.data) || acceptedDates.has(normalizedRecord.dataISO)) {
-        const newSignature = buildRecordSignature(normalizedRecord);
-        const oldSignature = knownHistoryEntries[normalizedRecord.id];
-        if (!oldSignature || oldSignature !== newSignature) {
-          knownHistoryEntries[normalizedRecord.id] = newSignature;
-          setTimeout(() => {
-            if (document.getElementById('historyMachineSelect')?.value === machineId && document.getElementById('historyDate')?.value === dataBR) {
-              carregarDados();
-            }
-          }, 250);
-        }
-      }
-    };
-
-    const ref = historicoRef.child(machineId);
-    ref.on('child_added', handler);
-    ref.on('child_changed', handler);
-    historyListenerRef = ref;
-    historyListenerHandlers = [handler];
+    if (scroll) scroll.scrollLeft = 0;
   }
 
   function criarGrafico(dados) {
     esconderEmptyStateGrafico();
-    const canvas = document.getElementById('historyChart');
-    if (!canvas) return;
+
+    const canvas = $('historyChart');
+    if (!canvas || !window.Chart) return;
+
+    destroyChart(canvas);
+
     const ctx = canvas.getContext('2d');
-    if (chart) chart.destroy();
 
     const pontos = sortHistoryRecords(dados).map(item => ({
       label: item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora,
@@ -467,8 +347,10 @@
     ajustarLarguraGrafico(pontos.length);
 
     const datasets = [];
+
     const addDataset = (key, label, field) => {
       if (!datasetVisibility[key]) return;
+
       datasets.push({
         label,
         data: pontos.map(p => p[field]),
@@ -485,81 +367,149 @@
     addDataset('neckring', 'Neck Rings', 'neckring');
     addDataset('funil', 'Funís', 'funil');
 
-    chart = new Chart(ctx, {
+    historyChartInstance = new Chart(ctx, {
       type: chartType,
-      data: { labels: pontos.map(p => p.label), datasets },
+      data: {
+        labels: pontos.map(p => p.label),
+        datasets
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        interaction: { mode: 'index', intersect: false },
+        layout: {
+          padding: {
+            top: 76
+          }
+        },
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
-          legend: { display: datasets.length > 0, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-          tooltip: { mode: 'index', intersect: false },
+          legend: {
+            display: datasets.length > 0,
+            position: 'top',
+            labels: {
+              usePointStyle: true,
+              boxWidth: 8
+            }
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false
+          },
           title: {
             display: datasets.length === 0,
             text: 'Selecione Moldes, Blanks, Neck Rings ou Funís para visualizar'
           }
         },
         scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1 } },
-          x: { ticks: { autoSkip: false, maxRotation: 0 } }
+          y: {
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1
+            }
+          },
+          x: {
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0
+            }
+          }
         }
       }
     });
-  }
 
-  function ajustarLarguraGrafico(pointCount) {
-    const inner = document.querySelector('.chart-inner');
-    const scroll = document.querySelector('.chart-scroll');
-    if (!inner) return;
-    const calculatedWidth = Math.max(1100, pointCount * (chartType === 'bar' ? 80 : 95));
-    inner.style.minWidth = `${calculatedWidth}px`;
-    inner.style.width = `${calculatedWidth}px`;
-    if (scroll) scroll.scrollLeft = 0;
+    window.historyChart = historyChartInstance;
+
+    setTimeout(() => {
+      if (window.WMoldesHistoryNotes && typeof window.WMoldesHistoryNotes.refresh === 'function') {
+        window.WMoldesHistoryNotes.refresh();
+      }
+    }, 100);
   }
 
   function criarGraficoVazio() {
-    const canvas = document.getElementById('historyChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (chart) chart.destroy();
+    const canvas = $('historyChart');
+    if (!canvas || !window.Chart) return;
+
+    destroyChart(canvas);
     ajustarLarguraGrafico(0);
-    chart = new Chart(ctx, {
+
+    const ctx = canvas.getContext('2d');
+
+    historyChartInstance = new Chart(ctx, {
       type: chartType,
-      data: { labels: [], datasets: [] },
+      data: {
+        labels: [],
+        datasets: []
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: { legend: { display: false }, title: { display: false } },
-        scales: { y: { display: false }, x: { display: false } }
+        layout: {
+          padding: {
+            top: 76
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          title: { display: false }
+        },
+        scales: {
+          y: { display: false },
+          x: { display: false }
+        }
       }
     });
+
+    window.historyChart = historyChartInstance;
+
+    setTimeout(() => {
+      if (window.WMoldesHistoryNotes && typeof window.WMoldesHistoryNotes.refresh === 'function') {
+        window.WMoldesHistoryNotes.refresh();
+      }
+    }, 100);
   }
 
   function atualizarTabela(dados) {
-    const tbody = document.getElementById('historyTableBody');
+    const tbody = $('historyTableBody');
     if (!tbody) return;
+
     if (!dados.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="no-data">Nenhum registro encontrado</td></tr>';
       return;
     }
+
     const ordenados = sortHistoryRecords(dados);
+
     tbody.innerHTML = ordenados.map(item => {
       const tipoIcon = item.tipo === 'real_time' ? '⚡' : '⏰';
       const hora = item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora;
-      return `<tr><td>${hora} ${tipoIcon}</td><td>${item.molde}</td><td>${item.blank}</td><td>${item.neck_ring}</td><td>${item.funil}</td></tr>`;
+
+      return `
+        <tr>
+          <td>${hora} ${tipoIcon}</td>
+          <td>${item.molde || 0}</td>
+          <td>${item.blank || 0}</td>
+          <td>${item.neck_ring || 0}</td>
+          <td>${item.funil || 0}</td>
+        </tr>
+      `;
     }).join('');
   }
 
   function atualizarInsights(dados) {
-    const container = document.getElementById('chartInsights');
+    const container = $('chartInsights');
     if (!container) return;
+
     if (!dados.length) {
       container.innerHTML = '';
       return;
     }
+
     const totals = dados.reduce((acc, item) => {
       acc.molde += item.molde || 0;
       acc.blank += item.blank || 0;
@@ -569,12 +519,173 @@
     }, { molde: 0, blank: 0, neck: 0, funil: 0 });
 
     container.innerHTML = `
-      <div class="insight-card"><div class="insight-title">Total Moldes</div><div class="insight-value">${totals.molde}</div></div>
-      <div class="insight-card"><div class="insight-title">Total Blanks</div><div class="insight-value">${totals.blank}</div></div>
-      <div class="insight-card"><div class="insight-title">Total Neck Rings</div><div class="insight-value">${totals.neck}</div></div>
-      <div class="insight-card"><div class="insight-title">Total Funís</div><div class="insight-value">${totals.funil}</div></div>
-      <div class="insight-card"><div class="insight-title">Registros</div><div class="insight-value">${dados.length}</div></div>
+      <div class="insight-card"><span>Total Moldes</span><strong>${totals.molde}</strong></div>
+      <div class="insight-card"><span>Total Blanks</span><strong>${totals.blank}</strong></div>
+      <div class="insight-card"><span>Total Neck Rings</span><strong>${totals.neck}</strong></div>
+      <div class="insight-card"><span>Total Funís</span><strong>${totals.funil}</strong></div>
+      <div class="insight-card"><span>Registros</span><strong>${dados.length}</strong></div>
     `;
+  }
+
+  function setupRealtimeHistoryListener(machineId, dataBR) {
+    if (typeof historicoRef === 'undefined' || !historicoRef) return;
+
+    if (historyListenerRef && historyListenerHandlers.length) {
+      historyListenerHandlers.forEach(handler => {
+        try {
+          historyListenerRef.off('child_added', handler);
+          historyListenerRef.off('child_changed', handler);
+        } catch (err) {
+          console.warn('Erro ao remover listeners antigos:', err);
+        }
+      });
+    }
+
+    const handler = function (snapshot) {
+      const normalizedRecord = normalizeRecord(snapshot.key, snapshot.val() || {});
+      const period = getActivePeriod();
+      const range = getPeriodRange(period);
+      const acceptedDates = new Set([dataBR, getDateISOFromBR(dataBR)]);
+
+      if (range.includeNextDate) {
+        const next = addDays(dataBR, 1);
+        acceptedDates.add(next);
+        acceptedDates.add(getDateISOFromBR(next));
+      }
+
+      if (acceptedDates.has(normalizedRecord.data) || acceptedDates.has(normalizedRecord.dataISO)) {
+        const newSignature = buildRecordSignature(normalizedRecord);
+        const oldSignature = knownHistoryEntries[normalizedRecord.id];
+
+        if (!oldSignature || oldSignature !== newSignature) {
+          knownHistoryEntries[normalizedRecord.id] = newSignature;
+
+          setTimeout(() => {
+            if ($('historyMachineSelect')?.value === machineId && $('historyDate')?.value === dataBR) {
+              carregarDados();
+            }
+          }, 250);
+        }
+      }
+    };
+
+    const ref = historicoRef.child(machineId);
+    ref.on('child_added', handler);
+    ref.on('child_changed', handler);
+
+    historyListenerRef = ref;
+    historyListenerHandlers = [handler];
+  }
+
+  async function carregarDados() {
+    if (isLoadingHistory) return;
+
+    const machine = $('historyMachineSelect')?.value || '';
+    const data = $('historyDate')?.value || '';
+
+    if (!machine) {
+      showAlertSafe('erro', 'Selecione uma máquina');
+      return;
+    }
+
+    if (!data) {
+      showAlertSafe('erro', 'Selecione uma data');
+      return;
+    }
+
+    currentMachine = machine;
+    currentDate = data;
+
+    const period = getActivePeriod();
+
+    isLoadingHistory = true;
+    mostrarLoading();
+
+    try {
+      const dados = await getHistoryFromFirebase(machine, data, period);
+
+      currentData = dados;
+      knownHistoryEntries = {};
+
+      dados.forEach(item => {
+        knownHistoryEntries[item.id] = buildRecordSignature(item);
+      });
+
+      displayedData = sortHistoryRecords(filtrarPorPeriodo(dados, period), period);
+
+      if (displayedData.length === 0) {
+        mostrarEmptyStateGrafico(machine, data, period);
+        criarGraficoVazio();
+        atualizarTabela([]);
+        atualizarInsights([]);
+      } else {
+        esconderEmptyStateGrafico();
+        criarGrafico(displayedData);
+        atualizarTabela(displayedData);
+        atualizarInsights(displayedData);
+      }
+
+      setupRealtimeHistoryListener(machine, data);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+      showAlertSafe('erro', 'Erro ao carregar dados: ' + (error.message || error));
+    } finally {
+      esconderLoading();
+      isLoadingHistory = false;
+    }
+  }
+
+  function injectShiftButtons() {
+    const periodContainer = document.querySelector('.period-selector, .period-options, .period-buttons');
+    if (!periodContainer || document.querySelector('[data-period="shift1"]')) return;
+
+    const custom = periodContainer.querySelector('[data-period="custom"]');
+
+    const buttons = [
+      { period: 'shift1', label: 'Turno 1<br><small>06:00 - 14:00</small>' },
+      { period: 'shift2', label: 'Turno 2<br><small>14:00 - 22:00</small>' },
+      { period: 'shift3', label: 'Turno 3<br><small>22:00 - 06:00</small>' }
+    ];
+
+    buttons.forEach(cfg => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'period-btn period-option';
+      button.setAttribute('data-period', cfg.period);
+      button.innerHTML = cfg.label;
+
+      if (custom) periodContainer.insertBefore(button, custom);
+      else periodContainer.appendChild(button);
+    });
+  }
+
+  function configurarPeriodButtons() {
+    injectShiftButtons();
+
+    document.querySelectorAll('.period-btn, .period-option').forEach(btn => {
+      const novo = btn.cloneNode(true);
+      btn.parentNode.replaceChild(novo, btn);
+
+      if (!novo.getAttribute('data-period') && /24/.test(novo.textContent || '')) {
+        novo.setAttribute('data-period', '24h');
+      }
+
+      novo.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        document.querySelectorAll('.period-btn, .period-option').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+
+        const periodo = this.getAttribute('data-period') || '24h';
+        const customContainer = $('customTimeContainer');
+
+        if (customContainer) {
+          customContainer.style.display = periodo === 'custom' ? 'block' : 'none';
+        }
+
+        if (currentMachine && currentDate) carregarDados();
+      });
+    });
   }
 
   function configurarToggleButtons() {
@@ -586,39 +697,90 @@
     ];
 
     config.forEach(([id, key]) => {
-      const btn = document.getElementById(id);
+      const btn = $(id);
       if (!btn) return;
+
       const novo = btn.cloneNode(true);
       btn.parentNode.replaceChild(novo, btn);
+
       novo.classList.toggle('active', datasetVisibility[key]);
       novo.setAttribute('aria-pressed', datasetVisibility[key] ? 'true' : 'false');
+
       novo.addEventListener('click', function (e) {
         e.preventDefault();
+
         datasetVisibility[key] = !datasetVisibility[key];
+
         this.classList.toggle('active', datasetVisibility[key]);
         this.setAttribute('aria-pressed', datasetVisibility[key] ? 'true' : 'false');
+
         criarGrafico(displayedData.length ? displayedData : currentData);
       });
     });
   }
 
-  function configurarPeriodButtons() {
-    injectShiftButtons();
-    const buttons = document.querySelectorAll('.period-btn, .period-option');
-    buttons.forEach(btn => {
-      const novo = btn.cloneNode(true);
-      btn.parentNode.replaceChild(novo, btn);
-      if (!novo.getAttribute('data-period') && /24/.test(novo.textContent || '')) novo.setAttribute('data-period', '24h');
-      novo.addEventListener('click', function (e) {
-        e.preventDefault();
-        document.querySelectorAll('.period-btn, .period-option').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const periodo = this.getAttribute('data-period') || '24h';
-        const customContainer = document.getElementById('customTimeContainer');
-        if (customContainer) customContainer.style.display = periodo === 'custom' ? 'block' : 'none';
+  function configurarEventos() {
+    const machineSelect = $('historyMachineSelect');
+    if (machineSelect && !machineSelect.__historyBound) {
+      machineSelect.__historyBound = true;
+      machineSelect.addEventListener('change', function () {
+        currentMachine = this.value;
+
+        const triggerButton = document.querySelector('.machine-select-button');
+        const buttonText = triggerButton?.querySelector('.selected-machine-text');
+
+        if (buttonText) {
+          buttonText.textContent = this.value ? `Máquina ${this.value}` : 'Selecionar máquina';
+        }
+
+        if (this.value && currentDate) carregarDados();
+      });
+    }
+
+    const dateSelect = $('historyDate');
+    if (dateSelect && !dateSelect.__historyBound) {
+      dateSelect.__historyBound = true;
+      dateSelect.addEventListener('change', function () {
+        currentDate = this.value;
+        const machine = $('historyMachineSelect')?.value;
+        if (machine) carregarDados();
+      });
+    }
+
+    const customStart = $('customStartTime');
+    if (customStart && !customStart.__historyBound) {
+      customStart.__historyBound = true;
+      customStart.addEventListener('change', () => {
         if (currentMachine && currentDate) carregarDados();
       });
+    }
+
+    const customEnd = $('customEndTime');
+    if (customEnd && !customEnd.__historyBound) {
+      customEnd.__historyBound = true;
+      customEnd.addEventListener('change', () => {
+        if (currentMachine && currentDate) carregarDados();
+      });
+    }
+
+    document.querySelectorAll('.btn-generate, #toggleChartBtn').forEach(btn => {
+      const wrapper = btn.closest('.history-action, .action-button-wrapper, .chart-action') || btn;
+      wrapper.style.display = 'none';
+      wrapper.setAttribute('aria-hidden', 'true');
     });
+  }
+
+  function getChartWrapper() {
+    const canvas = $('historyChart');
+    if (!canvas) return null;
+
+    const inner = canvas.closest('.chart-inner') || canvas.parentElement;
+
+    if (inner && getComputedStyle(inner).position === 'static') {
+      inner.style.position = 'relative';
+    }
+
+    return inner;
   }
 
   function getPeriodoLabel(period) {
@@ -633,257 +795,32 @@
       'turno3': 'Turno 3 - 22:00 às 06:00',
       'custom': 'Período personalizado'
     };
+
     return labels[period] || 'Período selecionado';
-  }
-
-
-  function getChartWrapper() {
-    const canvas = document.getElementById('historyChart');
-    if (!canvas) return null;
-    const inner = canvas.closest('.chart-inner') || canvas.parentElement;
-    if (inner && getComputedStyle(inner).position === 'static') inner.style.position = 'relative';
-    return inner;
   }
 
   function mostrarEmptyStateGrafico(machine, data, period) {
     const wrapper = getChartWrapper();
     if (!wrapper) return;
+
     esconderEmptyStateGrafico();
+
     const state = document.createElement('div');
     state.id = 'historyChartEmptyState';
     state.className = 'history-chart-empty-state';
     state.innerHTML = `
-      <div class="history-empty-visual" aria-hidden="true">
-        <span class="empty-orbit empty-orbit-one"></span>
-        <span class="empty-orbit empty-orbit-two"></span>
-        <svg viewBox="0 0 240 170" role="img">
-          <defs>
-            <linearGradient id="emptyGrad" x1="0" x2="1" y1="0" y2="1">
-              <stop offset="0" stop-color="#2563eb"/>
-              <stop offset="1" stop-color="#7c3aed"/>
-            </linearGradient>
-          </defs>
-          <rect x="34" y="34" width="172" height="104" rx="18" fill="#f8fafc" stroke="#dbeafe" stroke-width="3"/>
-          <path class="empty-chart-line" d="M58 111 C82 72, 102 86, 123 70 S164 62, 184 48" fill="none" stroke="url(#emptyGrad)" stroke-width="8" stroke-linecap="round"/>
-          <circle cx="58" cy="111" r="7" fill="#2563eb"/>
-          <circle cx="123" cy="70" r="7" fill="#2563eb"/>
-          <circle cx="184" cy="48" r="7" fill="#7c3aed"/>
-          <path d="M72 137 H168" stroke="#cbd5e1" stroke-width="6" stroke-linecap="round"/>
-          <path d="M89 151 H151" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <div class="history-empty-copy">
-        <strong>Nenhum dado encontrado para este período</strong>
-        <span>Máquina ${machine || '-'} · ${data || '-'} · ${getPeriodoLabel(period)}</span>
+      <div style="text-align:center;padding:30px;color:#64748b;">
+        <strong>Nenhum dado encontrado para este período</strong><br>
+        Máquina ${machine || '-'} · ${data || '-'} · ${getPeriodoLabel(period)}
       </div>
     `;
+
     wrapper.appendChild(state);
   }
 
   function esconderEmptyStateGrafico() {
-    const state = document.getElementById('historyChartEmptyState');
+    const state = $('historyChartEmptyState');
     if (state) state.remove();
-  }
-
-  function abrirTutorialHistorico() {
-    fecharTutorialHistorico();
-    const overlay = document.createElement('div');
-    overlay.className = 'history-onboarding-overlay';
-    overlay.id = 'historyOnboardingOverlay';
-    overlay.innerHTML = `
-      <div class="history-onboarding" role="dialog" aria-modal="true" aria-labelledby="historyTutorialTitle">
-        <button type="button" class="history-onboarding-close" aria-label="Fechar tutorial">×</button>
-        <div class="history-onboarding-hero">
-          <div class="history-onboarding-badge"><i class="fas fa-sparkles"></i> Onboarding SaaS</div>
-          <h3 id="historyTutorialTitle">Como analisar o histórico</h3>
-          <p>Use máquina, data, turnos e séries para enxergar a evolução de Moldes, Blanks, Neck Rings e Funís com segurança.</p>
-        </div>
-        <div class="history-onboarding-steps">
-          <article class="history-step-card">
-            <div class="history-step-number">1</div>
-            <div class="history-step-illustration"><i class="fas fa-industry"></i><span></span></div>
-            <h4>Escolha a máquina</h4>
-            <p>Selecione a máquina desejada. O gráfico carrega automaticamente os dados salvos para ela.</p>
-          </article>
-          <article class="history-step-card">
-            <div class="history-step-number">2</div>
-            <div class="history-step-illustration"><i class="fas fa-clock"></i><span></span></div>
-            <h4>Defina o período</h4>
-            <p>Use 24h, Turno 1, Turno 2, Turno 3 ou personalize o intervalo de análise.</p>
-          </article>
-          <article class="history-step-card">
-            <div class="history-step-number">3</div>
-            <div class="history-step-illustration"><i class="fas fa-layer-group"></i><span></span></div>
-            <h4>Controle as séries</h4>
-            <p>Moldes e Blanks já abrem ativos. Ative Neck Rings e Funís quando precisar comparar.</p>
-          </article>
-          <article class="history-step-card">
-            <div class="history-step-number">4</div>
-            <div class="history-step-illustration"><i class="fas fa-file-pdf"></i><span></span></div>
-            <h4>Exporte o relatório</h4>
-            <p>Gere um PDF com o gráfico e a tabela com as quantidades por horário.</p>
-          </article>
-        </div>
-        <div class="history-onboarding-footer">
-          <button type="button" class="history-onboarding-primary">Começar análise</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    overlay.querySelector('.history-onboarding-close')?.addEventListener('click', fecharTutorialHistorico);
-    overlay.querySelector('.history-onboarding-primary')?.addEventListener('click', fecharTutorialHistorico);
-    overlay.addEventListener('click', event => {
-      if (event.target === overlay) fecharTutorialHistorico();
-    });
-  }
-
-  function fecharTutorialHistorico() {
-    const existing = document.getElementById('historyOnboardingOverlay');
-    if (existing) existing.remove();
-  }
-
-  function abrirModalSemDados(machine, data, period) {
-    fecharModalSemDados();
-    const overlay = document.createElement('div');
-    overlay.className = 'history-empty-modal-overlay';
-    overlay.id = 'historyEmptyModalOverlay';
-    overlay.innerHTML = `
-      <div class="history-empty-modal" role="dialog" aria-modal="true" aria-labelledby="historyEmptyTitle">
-        <button type="button" class="history-empty-close" aria-label="Fechar">×</button>
-        <div class="history-empty-icon"><i class="fas fa-chart-line"></i></div>
-        <h3 id="historyEmptyTitle">Nenhum dado encontrado</h3>
-        <p>Não existe histórico salvo para <strong>Máquina ${machine}</strong> em <strong>${data}</strong> no período <strong>${getPeriodoLabel(period)}</strong>.</p>
-        <div class="history-empty-actions">
-          <button type="button" class="history-empty-ok">Entendi</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    overlay.querySelector('.history-empty-close')?.addEventListener('click', fecharModalSemDados);
-    overlay.querySelector('.history-empty-ok')?.addEventListener('click', fecharModalSemDados);
-    overlay.addEventListener('click', event => {
-      if (event.target === overlay) fecharModalSemDados();
-    });
-  }
-
-  function fecharModalSemDados() {
-    const existing = document.getElementById('historyEmptyModalOverlay');
-    if (existing) existing.remove();
-  }
-
-  function carregarScriptExterno(src) {
-    return new Promise((resolve, reject) => {
-      const exists = Array.from(document.scripts).find(script => script.src === src);
-      if (exists) {
-        if (exists.dataset.loaded === 'true') resolve();
-        else exists.addEventListener('load', resolve, { once: true });
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = src;
-      script.async = true;
-      script.dataset.loaded = 'false';
-      script.onload = () => { script.dataset.loaded = 'true'; resolve(); };
-      script.onerror = () => reject(new Error('Não foi possível carregar a biblioteca de PDF.'));
-      document.head.appendChild(script);
-    });
-  }
-
-  async function garantirJsPdf() {
-    if (window.jspdf?.jsPDF) return window.jspdf.jsPDF;
-    await carregarScriptExterno('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-    return window.jspdf?.jsPDF;
-  }
-
-  async function exportarPdfHistorico() {
-    if (!displayedData.length) {
-      abrirModalSemDados(currentMachine || '-', currentDate || '-', getActivePeriod());
-      return;
-    }
-    const canvas = document.getElementById('historyChart');
-    if (!canvas) return;
-
-    const btn = document.getElementById('exportHistoryPdfBtn');
-    const original = btn ? btn.innerHTML : '';
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando...';
-    }
-
-    try {
-      const jsPDF = await garantirJsPdf();
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 12;
-      const machine = document.getElementById('historyMachineSelect')?.value || currentMachine || '-';
-      const data = document.getElementById('historyDate')?.value || currentDate || '-';
-      const periodo = getPeriodoLabel(getActivePeriod());
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text('Histórico de Equipamentos', margin, 14);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text(`Máquina: ${machine}   Data: ${data}   Período: ${periodo}`, margin, 21);
-
-      const image = canvas.toDataURL('image/png', 1.0);
-      const imageWidth = pageWidth - margin * 2;
-      const imageHeight = Math.min(95, imageWidth * (canvas.height / Math.max(canvas.width, 1)));
-      doc.addImage(image, 'PNG', margin, 27, imageWidth, imageHeight);
-
-      let y = 27 + imageHeight + 10;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('Quantidade por horário', margin, y);
-      y += 7;
-
-      const activeColumns = [
-        ['molde', 'Moldes', 'molde'],
-        ['blank', 'Blanks', 'blank'],
-        ['neckring', 'Neck Rings', 'neck_ring'],
-        ['funil', 'Funís', 'funil']
-      ].filter(([key]) => datasetVisibility[key]);
-
-      const headers = ['Horário', ...activeColumns.map(col => col[1])];
-      const colWidth = (pageWidth - margin * 2) / headers.length;
-      const rowHeight = 7;
-
-      const drawHeader = () => {
-        doc.setFillColor(245, 247, 251);
-        doc.rect(margin, y - 5, pageWidth - margin * 2, rowHeight, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        headers.forEach((h, i) => doc.text(h, margin + i * colWidth + 2, y));
-        y += rowHeight;
-        doc.setFont('helvetica', 'normal');
-      };
-
-      drawHeader();
-      sortHistoryRecords(displayedData).forEach(item => {
-        if (y > pageHeight - 12) {
-          doc.addPage('a4', 'landscape');
-          y = 16;
-          drawHeader();
-        }
-        const hora = item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora;
-        const values = [hora, ...activeColumns.map(([, , field]) => String(item[field] ?? 0))];
-        values.forEach((value, i) => doc.text(String(value), margin + i * colWidth + 2, y));
-        y += rowHeight;
-      });
-
-      const fileMachine = String(machine).replace(/[^a-z0-9_-]+/gi, '-');
-      const fileDate = String(data).replace(/\//g, '-');
-      doc.save(`historico-${fileMachine}-${fileDate}.pdf`);
-    } catch (error) {
-      console.error('Erro ao exportar PDF:', error);
-      showAlert('erro', error.message || 'Erro ao exportar PDF');
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = original;
-      }
-    }
   }
 
   function mostrarLoading() {
@@ -896,21 +833,36 @@
     if (container) container.style.opacity = '1';
   }
 
-  function showAlert(type, message) {
+  function showAlertSafe(type, message) {
     if (typeof window.showAlert === 'function') window.showAlert(type, message);
     else console.log(`${type}: ${message}`);
   }
 
-  window.initHistorySection = function () {
+  function toggleChartType() {
+    chartType = chartType === 'line' ? 'bar' : 'line';
+    criarGrafico(displayedData.length ? displayedData : currentData);
+  }
+
+  async function exportHistoryPdf() {
+    showAlertSafe('info', 'Exportação em PDF mantida pelo módulo original do painel.');
+  }
+
+  function initHistorySection() {
     preencherSelectData();
     preencherSelectMaquina();
     configurarPeriodButtons();
     configurarEventos();
     configurarToggleButtons();
     criarGraficoVazio();
-  };
+  }
 
+  window.initHistorySection = initHistorySection;
   window.loadHistoryChart = carregarDados;
-  window.exportHistoryPdf = exportarPdfHistorico;
   window.toggleChartType = toggleChartType;
+  window.exportHistoryPdf = exportHistoryPdf;
+  window.WMoldesHistoryDebug = {
+    destroyChart,
+    get chart() { return historyChartInstance; },
+    reload: carregarDados
+  };
 })();
