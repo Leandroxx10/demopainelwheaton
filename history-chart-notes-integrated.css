@@ -307,3 +307,13 @@ body.dark .history-note-icon-btn,
   border-color: #334155;
   color: #e5e7eb;
 }
+
+
+.history-note-tooltip-time.maintenance {
+  color: #cbd5e1;
+}
+
+.history-note-tooltip-time.maintenance::before {
+  content: "Manutenção • ";
+  color: #f8fafc;
+}

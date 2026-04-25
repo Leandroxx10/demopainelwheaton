@@ -155,11 +155,16 @@
     STATE.currentMachine = getSelectedMachine();
     STATE.currentDate = getSelectedDate();
 
-    return STATE.notes.filter(n =>
+    const savedNotes = STATE.notes.filter(n =>
       n.machine === STATE.currentMachine &&
       normalizeDate(n.date) === STATE.currentDate &&
       isNoteVisibleInCurrentPeriod(n)
     );
+
+    const maintenanceNote = getMaintenanceVirtualNote();
+    if (maintenanceNote) savedNotes.unshift(maintenanceNote);
+
+    return savedNotes;
   }
 
   function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -173,16 +178,133 @@
     ctx.closePath();
   }
 
+  function forceTopPadding(chart) {
+    if (!chart || !chart.options) return;
+    chart.options.layout = chart.options.layout || {};
+    chart.options.layout.padding = chart.options.layout.padding || {};
+    const currentTop = Number(chart.options.layout.padding.top || 0);
+    // Reserva uma faixa superior exclusiva para as anotações.
+    // Isso evita conflito com o tooltip nativo dos pontos/quantidades.
+    chart.options.layout.padding.top = Math.max(currentTop, 58);
+  }
+
+  function getGlobalValue(name) {
+    try {
+      return Function(`return (typeof ${name} !== "undefined") ? ${name} : undefined`)();
+    } catch (_) {
+      return undefined;
+    }
+  }
+
+  function getMaintenanceInfo(machine) {
+    const sources = [
+      window.machineMaintenance,
+      window.maintenanceData,
+      window.allMachineMaintenance,
+      getGlobalValue('machineMaintenance'),
+      getGlobalValue('maintenanceData'),
+      getGlobalValue('allMachineMaintenance')
+    ].filter(Boolean);
+
+    for (const source of sources) {
+      const item = source[machine] || source[String(machine)];
+      if (!item) continue;
+      const active =
+        item.isInMaintenance === true ||
+        item.maintenance === true ||
+        item.status === 'maintenance' ||
+        item.status === 'manutencao' ||
+        item.status === 'manutenção';
+
+      if (active) {
+        return {
+          isInMaintenance: true,
+          reason: item.reason || item.motivo || item.message || item.observacao || item.observação || '',
+          type: item.type || item.tipo || 'Manutenção corretiva'
+        };
+      }
+    }
+
+    const allAdminMachines = window.allAdminMachines || window.allMachinesData || getGlobalValue('allAdminMachines') || getGlobalValue('allMachinesData');
+    const machineData = allAdminMachines && (allAdminMachines[machine] || allAdminMachines[String(machine)]);
+    if (machineData) {
+      const active =
+        machineData.isInMaintenance === true ||
+        machineData.maintenance === true ||
+        machineData.status === 'maintenance' ||
+        machineData.status === 'manutencao' ||
+        machineData.status === 'manutenção';
+
+      if (active) {
+        return {
+          isInMaintenance: true,
+          reason: machineData.reason || machineData.motivo || machineData.maintenanceReason || '',
+          type: 'Manutenção corretiva'
+        };
+      }
+    }
+
+    return null;
+  }
+
+  function getVisibleRangeTimes() {
+    const isCustom = document.querySelector('.period-btn.active')?.dataset?.period === 'custom';
+    if (isCustom) {
+      return {
+        start: $('customStartTime')?.value || '00:00',
+        end: $('customEndTime')?.value || '23:59'
+      };
+    }
+
+    const active = document.querySelector('.period-btn.active, .period-option.active');
+    const period = active ? active.getAttribute('data-period') : '24h';
+
+    if (period === 'shift1' || period === 'turno1') return { start: '06:00', end: '14:00' };
+    if (period === 'shift2' || period === 'turno2') return { start: '14:00', end: '22:00' };
+    if (period === 'shift3' || period === 'turno3') return { start: '22:00', end: '06:00' };
+
+    return { start: '00:00', end: '23:59' };
+  }
+
+  function getMaintenanceVirtualNote() {
+    const machine = getSelectedMachine();
+    const date = getSelectedDate();
+    if (!machine || !date) return null;
+
+    const info = getMaintenanceInfo(machine);
+    if (!info || !info.isInMaintenance) return null;
+
+    const range = getVisibleRangeTimes();
+    return {
+      id: `maintenance_${machine}_${date}`,
+      machine,
+      date,
+      startTime: range.start,
+      endTime: range.end,
+      message: `PARADA PARA MANUTENÇÃO CORRETIVA${info.reason ? '\nMotivo: ' + info.reason : ''}`,
+      author: 'Sistema',
+      updatedAtText: 'Status atual da máquina',
+      __maintenance: true
+    };
+  }
+
   const chartNotesPlugin = {
     id: 'wmoldesHistoryNotes',
+    beforeInit(chart) {
+      forceTopPadding(chart);
+    },
+    beforeUpdate(chart) {
+      forceTopPadding(chart);
+    },
     afterDatasetsDraw(chart) {
       const xScale = getScaleX(chart);
       const yScale = getScaleY(chart);
       if (!xScale || !yScale) return;
 
       const ctx = chart.ctx;
-      const topY = chart.chartArea.top + 14;
+      const baseY = Math.max(8, chart.chartArea.top - 50);
       const notes = currentNotes();
+      const occupied = [];
 
       STATE.chart = chart;
 
@@ -190,51 +312,71 @@
         const x = getPixelForNote(chart, note);
         if (!Number.isFinite(x)) return;
 
-        const w = 32;
+        const w = note.__maintenance ? 46 : 32;
         const h = 24;
-        const y = topY;
-        const left = Math.max(chart.chartArea.left + 4, Math.min(x - w / 2, chart.chartArea.right - w - 4));
+
+        let row = 0;
+        let left = Math.max(chart.chartArea.left + 4, Math.min(x - w / 2, chart.chartArea.right - w - 4));
+        while (occupied.some(box => Math.abs(box.x - x) < 38 && box.row === row)) row++;
+        row = Math.min(row, 1);
+
+        const y = baseY + row * 28;
+        occupied.push({ x, row });
 
         note.__hit = { x: left, y, w, h, cx: x };
 
         ctx.save();
 
-        // Linha vertical suave até o eixo do gráfico, para mostrar exatamente o horário
-        ctx.strokeStyle = 'rgba(245, 158, 11, 0.30)';
+        // Linha vertical suave até o eixo do gráfico, indicando exatamente o horário.
+        // Começa abaixo do bloco para não competir com o tooltip de quantidade.
+        ctx.strokeStyle = note.__maintenance ? 'rgba(100, 116, 139, 0.38)' : 'rgba(245, 158, 11, 0.34)';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 5]);
         ctx.beginPath();
-        ctx.moveTo(x, y + h + 2);
+        ctx.moveTo(x, y + h + 4);
         ctx.lineTo(x, chart.chartArea.bottom);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Bloco de notas
+        // Bloco de notas / manutenção
         ctx.shadowColor = 'rgba(15, 23, 42, 0.20)';
         ctx.shadowBlur = 10;
         ctx.shadowOffsetY = 4;
-        ctx.fillStyle = '#fbbf24';
+        ctx.fillStyle = note.__maintenance ? '#64748b' : '#fbbf24';
         drawRoundedRect(ctx, left, y, w, h, 7);
         ctx.fill();
 
         // Borda
         ctx.shadowColor = 'transparent';
-        ctx.strokeStyle = '#d97706';
+        ctx.strokeStyle = note.__maintenance ? '#334155' : '#d97706';
         ctx.lineWidth = 1;
         drawRoundedRect(ctx, left, y, w, h, 7);
         ctx.stroke();
 
-        // Linhas internas estilo bloco de notas
-        ctx.strokeStyle = '#78350f';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(left + 9, y + 8);
-        ctx.lineTo(left + 23, y + 8);
-        ctx.moveTo(left + 9, y + 12);
-        ctx.lineTo(left + 21, y + 12);
-        ctx.moveTo(left + 9, y + 16);
-        ctx.lineTo(left + 18, y + 16);
-        ctx.stroke();
+        if (note.__maintenance) {
+          // Ícone de chave/manutenção simplificado
+          ctx.strokeStyle = '#f8fafc';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(left + 15, y + 9, 4, 0.6, Math.PI * 1.65);
+          ctx.moveTo(left + 18, y + 13);
+          ctx.lineTo(left + 28, y + 18);
+          ctx.moveTo(left + 25, y + 17);
+          ctx.lineTo(left + 29, y + 14);
+          ctx.stroke();
+        } else {
+          // Linhas internas estilo bloco de notas
+          ctx.strokeStyle = '#78350f';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(left + 9, y + 8);
+          ctx.lineTo(left + 23, y + 8);
+          ctx.moveTo(left + 9, y + 12);
+          ctx.lineTo(left + 21, y + 12);
+          ctx.moveTo(left + 9, y + 16);
+          ctx.lineTo(left + 18, y + 16);
+          ctx.stroke();
+        }
 
         ctx.restore();
       });
@@ -282,10 +424,10 @@
 
     STATE.hoverNote = note;
     el.innerHTML = `
-      <div class="history-note-tooltip-time">${escapeHtml(note.startTime)} - ${escapeHtml(note.endTime || note.startTime)}</div>
+      <div class="history-note-tooltip-time ${note.__maintenance ? 'maintenance' : ''}">${escapeHtml(note.startTime)} - ${escapeHtml(note.endTime || note.startTime)}</div>
       <div class="history-note-tooltip-message">${escapeHtml(note.message || '')}</div>
       <div class="history-note-tooltip-meta">${escapeHtml(note.author || 'Usuário')} • ${escapeHtml(note.updatedAtText || note.createdAtText || '')}</div>
-      <div class="history-note-tooltip-actions">Clique para editar/remover</div>
+      <div class="history-note-tooltip-actions">${note.__maintenance ? 'Informação automática do status da máquina' : 'Clique para editar/remover'}</div>
     `;
 
     const offset = 14;
@@ -354,7 +496,7 @@
 
     canvas.addEventListener('click', (evt) => {
       const note = findNoteAtEvent(evt);
-      if (note) openModal(note);
+      if (note && !note.__maintenance) openModal(note);
     });
   }
 
