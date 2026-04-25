@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="admin-style.css">
     <link rel="stylesheet" href="prefix-modal.css">
+    <link rel="stylesheet" href="history-chart-notes-integrated.css">
     
 </head>
 <body>
@@ -759,6 +760,17 @@
                     
                     <!-- Gráfico -->
                     <div class="chart-container">
+                        <!-- Anotações do gráfico: ficam integradas ao canvas, por máquina e data -->
+                        <div class="history-notes-toolbar" id="historyNotesToolbar">
+                            <button type="button" class="history-note-add-btn" id="historyNoteAddBtn">
+                                <i class="fas fa-sticky-note"></i>
+                                Nova anotação
+                            </button>
+                            <span class="history-notes-helper">
+                                Passe o mouse sobre o bloco no topo do gráfico para visualizar.
+                            </span>
+                        </div>
+
                         <div class="chart-scroll">
                             <div class="chart-inner">
                                 <canvas id="historyChart"></canvas>
@@ -800,6 +812,58 @@
                     </div>
                 </div>
             </section>
+
+
+            <!-- MODAL DE ANOTAÇÕES DO GRÁFICO -->
+            <div class="history-note-modal-backdrop" id="historyNoteModalBackdrop" aria-hidden="true">
+                <div class="history-note-modal" role="dialog" aria-modal="true" aria-labelledby="historyNoteModalTitle">
+                    <div class="history-note-modal-header">
+                        <div>
+                            <h3 id="historyNoteModalTitle">Anotação do gráfico</h3>
+                            <p>Escolha a data e o horário onde o bloco deve aparecer no gráfico.</p>
+                        </div>
+                        <button type="button" class="history-note-icon-btn" id="historyNoteCloseBtn" aria-label="Fechar">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <input type="hidden" id="historyNoteId">
+
+                    <div class="history-note-form-grid">
+                        <div class="history-note-field">
+                            <label for="historyNoteDate">Data</label>
+                            <input type="date" id="historyNoteDate">
+                        </div>
+                        <div class="history-note-field">
+                            <label for="historyNoteStart">Horário inicial</label>
+                            <input type="time" id="historyNoteStart">
+                        </div>
+                        <div class="history-note-field">
+                            <label for="historyNoteEnd">Horário final</label>
+                            <input type="time" id="historyNoteEnd">
+                        </div>
+                    </div>
+
+                    <div class="history-note-field">
+                        <label for="historyNoteMessage">Mensagem</label>
+                        <textarea id="historyNoteMessage" rows="4" placeholder="Digite a anotação..."></textarea>
+                    </div>
+
+                    <div class="history-note-modal-actions">
+                        <button type="button" class="history-note-danger-btn" id="historyNoteDeleteBtn">
+                            <i class="fas fa-trash"></i>
+                            Remover
+                        </button>
+                        <div class="history-note-modal-actions-right">
+                            <button type="button" class="history-note-secondary-btn" id="historyNoteCancelBtn">Cancelar</button>
+                            <button type="button" class="history-note-primary-btn" id="historyNoteSaveBtn">
+                                <i class="fas fa-save"></i>
+                                Salvar anotação
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- MODAL SEM REGISTROS -->
             <div class="modal" id="noDataModal">
@@ -864,9 +928,9 @@
     <script src="auto-history-service.js"></script>
     <script src="machine-select-modal.js"></script>
     <script src="history-charts.js"></script>
+    <script src="history-chart-notes-integrated.js"></script>
     <script src="theme-manager.js"></script>
     <script src="history-polish.js"></script>
-    <script src="history-notes.js"></script>
 
     
     <!-- CSS -->
@@ -877,7 +941,6 @@
     <link rel="stylesheet" href="prefix-modal.css">
     <link rel="stylesheet" href="history-charts.css">
     <link rel="stylesheet" href="history-polish.css">
-    <link rel="stylesheet" href="history-graph-notes.css">
     
     <!-- ESTILO FORÇADO PARA GARANTIR FORMULÁRIO EM CIMA E LISTA EMBAIXO -->
     <style>

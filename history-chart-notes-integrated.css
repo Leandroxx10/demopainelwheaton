@@ -1,0 +1,309 @@
+/*
+ * history-chart-notes-integrated.css
+ * CSS isolado para as anotações do gráfico de histórico.
+ */
+
+#history-section .chart-container {
+  position: relative;
+}
+
+.history-notes-toolbar {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.history-note-add-btn {
+  pointer-events: auto;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.history-note-add-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
+  filter: brightness(1.04);
+}
+
+.history-notes-helper {
+  pointer-events: none;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  backdrop-filter: blur(10px);
+}
+
+.history-note-tooltip {
+  position: fixed;
+  z-index: 99999;
+  min-width: 240px;
+  max-width: 340px;
+  background: #0f172a;
+  color: #e5e7eb;
+  border: 1px solid rgba(148, 163, 184, 0.30);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.32);
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.history-note-tooltip-time {
+  color: #fbbf24;
+  font-weight: 800;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.history-note-tooltip-message {
+  font-size: 14px;
+  line-height: 1.45;
+  color: #f8fafc;
+  white-space: pre-wrap;
+  margin-bottom: 9px;
+}
+
+.history-note-tooltip-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  border-top: 1px solid rgba(148, 163, 184, 0.20);
+  padding-top: 8px;
+}
+
+.history-note-tooltip-actions {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #bfdbfe;
+}
+
+.history-note-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(4px);
+  padding: 18px;
+}
+
+.history-note-modal-backdrop.active {
+  display: flex;
+}
+
+.history-note-modal {
+  width: min(620px, 100%);
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.30);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.30);
+  padding: 22px;
+}
+
+.history-note-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.history-note-modal-header h3 {
+  margin: 0 0 5px 0;
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.history-note-modal-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.history-note-icon-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.history-note-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.history-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.history-note-field label {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.history-note-field input,
+.history-note-field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.history-note-field textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+.history-note-field input:focus,
+.history-note-field textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.history-note-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.history-note-modal-actions-right {
+  display: flex;
+  gap: 10px;
+}
+
+.history-note-primary-btn,
+.history-note-secondary-btn,
+.history-note-danger-btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-note-primary-btn {
+  background: #2563eb;
+  color: #fff;
+}
+
+.history-note-secondary-btn {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.history-note-danger-btn {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+@media (max-width: 900px) {
+  .history-notes-toolbar {
+    position: static;
+    margin: 0 0 12px 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    pointer-events: auto;
+  }
+
+  .history-notes-helper {
+    display: none;
+  }
+
+  .history-note-form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .history-note-modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .history-note-modal-actions-right {
+    flex-direction: column-reverse;
+  }
+
+  .history-note-primary-btn,
+  .history-note-secondary-btn,
+  .history-note-danger-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+body.dark .history-note-modal,
+[data-theme="dark"] .history-note-modal {
+  background: #0f172a;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+body.dark .history-note-modal-header h3,
+[data-theme="dark"] .history-note-modal-header h3 {
+  color: #f8fafc;
+}
+
+body.dark .history-note-modal-header p,
+[data-theme="dark"] .history-note-modal-header p,
+body.dark .history-note-field label,
+[data-theme="dark"] .history-note-field label {
+  color: #cbd5e1;
+}
+
+body.dark .history-note-field input,
+body.dark .history-note-field textarea,
+[data-theme="dark"] .history-note-field input,
+[data-theme="dark"] .history-note-field textarea {
+  background: #111827;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+body.dark .history-note-icon-btn,
+[data-theme="dark"] .history-note-icon-btn {
+  background: #111827;
+  border-color: #334155;
+  color: #e5e7eb;
+}
