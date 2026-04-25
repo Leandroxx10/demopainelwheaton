@@ -1500,3 +1500,68 @@ button[onclick*="exportHistoryPdf"] {
     min-width: 900px !important;
   }
 }
+
+
+/* =========================================================
+   AJUSTE FINO FINAL - LABELS MÁQUINA / PERÍODO VISÍVEIS
+   Mantém o layout atual e só aumenta o respiro vertical.
+   ========================================================= */
+
+#wmHistoryForcedLayout {
+  padding-top: 12px !important;
+}
+
+#wmHistoryForcedFields {
+  margin-top: 22px !important;
+}
+
+#wmHistoryForcedFields label,
+#wmHistoryForcedFields .form-label,
+#wmHistoryForcedFields .field-label,
+#wmHistoryForcedFields .filter-label {
+  display: block !important;
+  margin-bottom: 7px !important;
+  line-height: 1.2 !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+#wmHistoryForcedPeriod {
+  margin-top: 14px !important;
+}
+
+#wmHistoryForcedPeriod::before {
+  display: block !important;
+  margin-bottom: 7px !important;
+  line-height: 1.2 !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+/* Garante que nenhum botão do topo fique sobre labels/campos */
+#wmHistoryForcedActions {
+  margin-bottom: 4px !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+#wmHistoryForcedFields,
+#wmHistoryForcedPeriod {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+/* Ajuste responsivo: no mobile o respiro pode ser menor */
+@media (max-width: 720px) {
+  #wmHistoryForcedLayout {
+    padding-top: 8px !important;
+  }
+
+  #wmHistoryForcedFields {
+    margin-top: 12px !important;
+  }
+
+  #wmHistoryForcedPeriod {
+    margin-top: 10px !important;
+  }
+}
