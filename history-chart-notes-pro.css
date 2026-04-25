@@ -1,0 +1,103 @@
+/* WMoldes - Anotações profissionais no gráfico do histórico */
+.chart-container, .chart-scroll, .chart-inner { position: relative !important; }
+.chart-container { overflow: visible !important; }
+.chart-inner { min-height: 360px; }
+#historyChart { display: block; }
+
+.wm-chart-notes-toolbar {
+  position: absolute !important;
+  top: 10px !important;
+  right: 14px !important;
+  z-index: 30 !important;
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+  pointer-events: auto !important;
+}
+.wm-chart-notes-add {
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  color: #fff !important;
+  padding: 9px 14px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 10px 25px rgba(37, 99, 235, .28) !important;
+  cursor: pointer !important;
+  line-height: 1 !important;
+}
+.wm-chart-notes-add:hover { transform: translateY(-1px); filter: brightness(1.04); }
+
+.wm-chart-note-tooltip {
+  position: fixed !important;
+  z-index: 999999 !important;
+  width: min(320px, calc(100vw - 28px)) !important;
+  border: 1px solid rgba(148, 163, 184, .28) !important;
+  border-radius: 16px !important;
+  background: rgba(15, 23, 42, .96) !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .35) !important;
+  backdrop-filter: blur(12px) !important;
+  padding: 12px 14px !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transform: translateY(8px) scale(.98) !important;
+  transition: opacity .14s ease, transform .14s ease !important;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+.wm-chart-note-tooltip.show { opacity: 1 !important; transform: translateY(0) scale(1) !important; }
+.wm-chart-note-tooltip .wm-note-time { color:#fde68a !important; font-weight:800 !important; font-size:13px !important; margin-bottom:6px !important; }
+.wm-chart-note-tooltip .wm-note-message { color:#f8fafc !important; font-size:14px !important; line-height:1.4 !important; white-space:pre-wrap !important; }
+.wm-chart-note-tooltip .wm-note-meta { color:#94a3b8 !important; font-size:12px !important; margin-top:9px !important; }
+
+.wm-note-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(15, 23, 42, .58) !important;
+  z-index: 999998 !important;
+  display: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 18px !important;
+}
+.wm-note-modal-backdrop.show { display: flex !important; }
+.wm-note-modal {
+  width: min(560px, 100%) !important;
+  background: #fff !important;
+  color: #0f172a !important;
+  border-radius: 22px !important;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, .35) !important;
+  border: 1px solid rgba(148, 163, 184, .25) !important;
+  overflow: hidden !important;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+.wm-note-modal-header { padding: 18px 20px !important; border-bottom: 1px solid #e5e7eb !important; display:flex !important; justify-content:space-between !important; gap:12px !important; align-items:center !important; }
+.wm-note-modal-title { margin:0 !important; font-size:18px !important; font-weight:800 !important; }
+.wm-note-modal-close { border:0 !important; background:#f1f5f9 !important; color:#334155 !important; width:36px !important; height:36px !important; border-radius:999px !important; cursor:pointer !important; font-size:18px !important; }
+.wm-note-modal-body { padding: 18px 20px !important; display:grid !important; gap:14px !important; }
+.wm-note-grid { display:grid !important; grid-template-columns: repeat(3, minmax(0,1fr)) !important; gap:12px !important; }
+.wm-note-field label { display:block !important; font-size:12px !important; font-weight:800 !important; color:#475569 !important; margin-bottom:6px !important; text-transform:uppercase !important; letter-spacing:.04em !important; }
+.wm-note-field input, .wm-note-field textarea {
+  width:100% !important; box-sizing:border-box !important; border:1px solid #cbd5e1 !important; border-radius:12px !important; padding:10px 12px !important; font-size:14px !important; color:#0f172a !important; background:#fff !important; outline:none !important;
+}
+.wm-note-field textarea { min-height:112px !important; resize:vertical !important; }
+.wm-note-field input:focus, .wm-note-field textarea:focus { border-color:#2563eb !important; box-shadow:0 0 0 4px rgba(37,99,235,.12) !important; }
+.wm-note-modal-footer { padding: 14px 20px 20px !important; display:flex !important; justify-content:space-between !important; gap:10px !important; border-top:1px solid #e5e7eb !important; }
+.wm-note-actions-left, .wm-note-actions-right { display:flex !important; gap:10px !important; }
+.wm-note-btn { border:0 !important; border-radius:12px !important; padding:10px 14px !important; font-weight:800 !important; cursor:pointer !important; font-size:14px !important; }
+.wm-note-btn-primary { background:#2563eb !important; color:#fff !important; }
+.wm-note-btn-secondary { background:#e2e8f0 !important; color:#0f172a !important; }
+.wm-note-btn-danger { background:#fee2e2 !important; color:#dc2626 !important; }
+
+/* Esconde versões antigas que ficavam abaixo do gráfico */
+#historyNotesPanel, #historyNotesList, .history-notes-panel, .history-notes-list, .history-note-card,
+.history-graph-notes-panel, .graph-notes-list, .chart-notes-list { display: none !important; }
+
+@media (max-width: 768px) {
+  .wm-chart-notes-toolbar { top: 8px !important; right: 8px !important; }
+  .wm-chart-notes-add { padding: 8px 11px !important; font-size:12px !important; }
+  .wm-note-grid { grid-template-columns:1fr !important; }
+  .wm-note-modal-footer { flex-direction: column-reverse !important; }
+  .wm-note-actions-left, .wm-note-actions-right { width:100% !important; }
+  .wm-note-btn { flex:1 !important; }
+}
