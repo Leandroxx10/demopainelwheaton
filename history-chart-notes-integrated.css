@@ -912,3 +912,334 @@ button[onclick*="exportHistoryPdf"] {
     max-width: none !important;
   }
 }
+
+
+/* =========================================================
+   LAYOUT FINAL DO HISTÓRICO - COMO MARCADO NA IMAGEM
+   Desktop:
+   - Tutorial + Exportar no topo
+   - Máquina e Data lado a lado
+   - Período ocupando a largura abaixo, horizontal
+   - Ver comentários embaixo à direita
+   Mobile:
+   - Campos empilhados
+   - Gráfico com scroll horizontal
+   ========================================================= */
+
+/* Card principal do histórico */
+#history-section .history-controls,
+#history-section .history-filter-card,
+#history-section .history-filters,
+#history-section .history-toolbar,
+#history-section .history-header-controls {
+  display: grid !important;
+  grid-template-columns: minmax(280px, 280px) minmax(300px, 300px) 1fr !important;
+  grid-template-areas:
+    "actions actions actions"
+    "machine date empty"
+    "period period period"
+    "line line line"
+    "blank blank comments" !important;
+  gap: 18px 18px !important;
+  align-items: start !important;
+  width: 100% !important;
+  max-width: 1220px !important;
+  margin: 0 auto !important;
+  padding: 34px 36px 26px !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Linha superior: Tutorial + Exportar PDF */
+#history-section .history-actions,
+#history-section .history-top-actions,
+#history-section .history-buttons,
+#history-section .history-action-buttons {
+  grid-area: actions !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+/* Fallback se os botões estiverem soltos */
+#history-section button[onclick*="showHistoryTutorial"],
+#history-section .tutorial-btn,
+#history-section .history-tutorial-btn {
+  grid-area: actions !important;
+  justify-self: start !important;
+}
+
+#history-section button[onclick*="exportHistoryPdf"],
+#history-section .export-pdf-btn {
+  grid-area: actions !important;
+  justify-self: start !important;
+  margin-left: 256px !important;
+  white-space: nowrap !important;
+}
+
+/* Máquina e Data lado a lado */
+#history-section .machine-field,
+#history-section .history-machine-field,
+#history-section [data-field="machine"],
+#history-section label[for="historyMachineSelect"] {
+  grid-area: machine !important;
+  align-self: start !important;
+  margin-top: 0 !important;
+}
+
+#history-section .date-field,
+#history-section .history-date-field,
+#history-section [data-field="date"],
+#history-section label[for="historyDate"] {
+  grid-area: date !important;
+  align-self: start !important;
+  margin-top: 0 !important;
+}
+
+#history-section #historyMachineSelect,
+#history-section #historyDate {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 300px !important;
+  height: 52px !important;
+  border-radius: 12px !important;
+}
+
+/* Período largo horizontal, ocupando a área marcada */
+#history-section .period-selector,
+#history-section .period-options,
+#history-section .period-buttons {
+  grid-area: period !important;
+  display: grid !important;
+  grid-template-columns: 1.1fr 1fr 1fr 1fr minmax(150px, .8fr) !important;
+  gap: 0 !important;
+  width: 100% !important;
+  max-width: 1160px !important;
+  min-height: 94px !important;
+  border: 1px solid #dbe3ef !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  align-self: start !important;
+  box-sizing: border-box !important;
+}
+
+/* cada opção do período */
+#history-section .period-btn,
+#history-section .period-option {
+  min-height: 94px !important;
+  padding: 14px 18px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #ffffff !important;
+  color: #1f2937 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  border-right: 1px solid #edf2f7 !important;
+}
+
+/* ativo */
+#history-section .period-btn.active,
+#history-section .period-option.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 28px rgba(37, 99, 235, .22) !important;
+  border-radius: 10px !important;
+  margin: 6px !important;
+  min-height: 82px !important;
+}
+
+#history-section .period-btn small,
+#history-section .period-option small {
+  display: block !important;
+  margin-top: 5px !important;
+  font-size: 12px !important;
+  color: inherit !important;
+  opacity: .78 !important;
+}
+
+/* Personalizar na última célula, sem quebrar para baixo */
+#history-section .period-btn[data-period="custom"],
+#history-section .period-option[data-period="custom"] {
+  grid-column: auto !important;
+  min-height: 94px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding-left: 18px !important;
+  border-right: 0 !important;
+}
+
+/* linha divisória abaixo do período */
+#history-section .history-controls::before,
+#history-section .history-filter-card::before,
+#history-section .history-filters::before,
+#history-section .history-toolbar::before,
+#history-section .history-header-controls::before {
+  content: "" !important;
+  grid-area: line !important;
+  display: block !important;
+  width: 100% !important;
+  height: 1px !important;
+  background: #e2e8f0 !important;
+  margin: 8px 0 0 !important;
+}
+
+/* Botão comentários no canto inferior direito */
+#historyCommentsBtn {
+  grid-area: comments !important;
+  justify-self: end !important;
+  align-self: center !important;
+  width: 236px !important;
+  min-height: 54px !important;
+  max-width: 236px !important;
+  margin: 0 !important;
+  border-radius: 14px !important;
+}
+
+/* remove alturas/margens antigas conflitantes */
+#history-section .date-field,
+#history-section .history-date-field,
+#history-section label[for="historyDate"] {
+  margin-top: 0 !important;
+}
+
+#history-section .debug-text,
+#history-section .test-label,
+#history-section [data-debug],
+#history-section [data-test] {
+  display: none !important;
+}
+
+/* Gráfico com scroll horizontal em telas pequenas */
+#history-section .chart-scroll,
+.chart-scroll {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: thin !important;
+}
+
+#history-section .chart-inner,
+.chart-inner {
+  min-width: 980px !important;
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-areas:
+      "actions actions"
+      "machine date"
+      "period period"
+      "line line"
+      "comments comments" !important;
+    max-width: 920px !important;
+    padding: 28px !important;
+  }
+
+  #history-section button[onclick*="exportHistoryPdf"],
+  #history-section .export-pdf-btn {
+    margin-left: 256px !important;
+  }
+
+  #history-section .period-selector,
+  #history-section .period-options,
+  #history-section .period-buttons {
+    grid-template-columns: repeat(2, minmax(150px, 1fr)) !important;
+  }
+
+  #history-section .period-btn[data-period="custom"],
+  #history-section .period-option[data-period="custom"] {
+    grid-column: 1 / -1 !important;
+  }
+
+  #historyCommentsBtn {
+    justify-self: end !important;
+  }
+}
+
+/* Mobile */
+@media (max-width: 680px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "actions"
+      "machine"
+      "date"
+      "period"
+      "line"
+      "comments" !important;
+    gap: 14px !important;
+    padding: 18px !important;
+  }
+
+  #history-section .history-actions,
+  #history-section .history-top-actions,
+  #history-section .history-buttons,
+  #history-section .history-action-buttons {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+  }
+
+  #history-section button[onclick*="showHistoryTutorial"],
+  #history-section .tutorial-btn,
+  #history-section .history-tutorial-btn,
+  #history-section button[onclick*="exportHistoryPdf"],
+  #history-section .export-pdf-btn {
+    width: 100% !important;
+    margin-left: 0 !important;
+    justify-content: center !important;
+  }
+
+  #history-section #historyMachineSelect,
+  #history-section #historyDate {
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  #history-section .period-selector,
+  #history-section .period-options,
+  #history-section .period-buttons {
+    grid-template-columns: 1fr 1fr !important;
+    min-height: unset !important;
+  }
+
+  #history-section .period-btn,
+  #history-section .period-option {
+    min-height: 72px !important;
+    padding: 10px !important;
+  }
+
+  #history-section .period-btn.active,
+  #history-section .period-option.active {
+    min-height: 60px !important;
+  }
+
+  #historyCommentsBtn {
+    width: 100% !important;
+    max-width: none !important;
+    justify-self: stretch !important;
+  }
+
+  #history-section .chart-inner,
+  .chart-inner {
+    min-width: 900px !important;
+  }
+}
