@@ -1,0 +1,260 @@
+/* WMoldes - Histórico Admin | V13: topo compacto dos botões no card de filtros */
+:root{
+  --history-primary: var(--primary,#2563eb);
+  --history-text: var(--text,#0f172a);
+  --history-muted: #64748b;
+  --history-border: var(--border,#e2e8f0);
+  --history-shadow: 0 12px 30px rgba(15,23,42,.08);
+}
+
+/* Card superior do histórico: espaço reduzido para os botões */
+.history-filter-card-with-actions{
+  position: relative !important;
+  padding-top: 104px !important;
+  overflow: visible !important;
+}
+
+/* Linha dos botões: fica no topo esquerdo, sem criar bloco gigante */
+.history-top-action-row,
+#historyActionRow{
+  position: absolute !important;
+  top: 22px !important;
+  left: clamp(24px,3vw,42px) !important;
+  right: auto !important;
+  width: auto !important;
+  min-height: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  flex-wrap: wrap !important;
+  z-index: 20 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: auto !important;
+}
+
+/* Botões padrão */
+.history-btn,
+#historyTutorialBtn,
+#exportHistoryPdfBtn,
+button[data-history-action="tutorial"],
+button[data-history-action="export-pdf"]{
+  min-height: 64px !important;
+  min-width: 208px !important;
+  border: 1px solid rgba(226,232,240,.95) !important;
+  border-radius: 18px !important;
+  padding: 10px 16px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .01em !important;
+  cursor: pointer !important;
+  transition: transform .2s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease !important;
+  white-space: nowrap !important;
+  box-shadow: var(--history-shadow) !important;
+  text-decoration: none !important;
+}
+
+.history-action-icon{
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 15px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  font-size: 1rem !important;
+}
+
+.history-action-text{
+  display: grid !important;
+  gap: 2px !important;
+  line-height: 1.12 !important;
+  text-align: left !important;
+}
+
+.history-action-text strong{
+  font-size: .98rem !important;
+}
+
+.history-action-text small{
+  font-size: .78rem !important;
+  font-weight: 700 !important;
+  opacity: .78 !important;
+}
+
+#exportHistoryPdfBtn,
+.history-export-pdf-btn,
+button[data-history-action="export-pdf"]{
+  background: linear-gradient(135deg,var(--history-primary),#1d4ed8) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+#exportHistoryPdfBtn .history-action-icon,
+.history-export-pdf-btn .history-action-icon{
+  background: rgba(255,255,255,.16) !important;
+  color: #fff !important;
+}
+
+#historyTutorialBtn,
+.history-tutorial-btn,
+button[data-history-action="tutorial"]{
+  background: rgba(255,255,255,.96) !important;
+  color: var(--history-text) !important;
+}
+
+#historyTutorialBtn .history-action-icon,
+.history-tutorial-btn .history-action-icon{
+  background: #dbeafe !important;
+  color: var(--history-primary) !important;
+}
+
+.history-btn:hover,
+#exportHistoryPdfBtn:hover,
+#historyTutorialBtn:hover,
+button[data-history-action="export-pdf"]:hover,
+button[data-history-action="tutorial"]:hover{
+  transform: translateY(-2px) !important;
+  box-shadow: 0 16px 34px rgba(37,99,235,.16) !important;
+}
+
+/* Remove botões antigos/desnecessários */
+#toggleChartBtn,
+.btn-generate,
+button[data-history-action="bar"],
+button[data-history-action="analysis"]{
+  display: none !important;
+}
+
+/* Estado vazio do gráfico */
+.history-empty-state,
+.hc-empty-state{
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 28px;
+  z-index: 2;
+}
+
+.history-empty-card,
+.hc-empty-card{
+  width: min(460px,92%);
+  background: rgba(255,255,255,.94);
+  border: 1px solid rgba(226,232,240,.95);
+  border-radius: 26px;
+  padding: 28px;
+  text-align: center;
+  box-shadow: var(--history-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.history-empty-illustration,
+.hc-empty-illustration{
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 14px;
+  position: relative;
+  border-radius: 32px;
+  background: linear-gradient(135deg,#eff6ff,#f8fafc);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.history-empty-illustration::before,
+.hc-empty-illustration::before{
+  content: "";
+  width: 78px;
+  height: 50px;
+  border-left: 6px solid #2563eb;
+  border-bottom: 6px solid #2563eb;
+  border-radius: 8px;
+  opacity: .92;
+}
+
+.history-empty-illustration::after,
+.hc-empty-illustration::after{
+  content: "";
+  position: absolute;
+  width: 108px;
+  height: 4px;
+  background: linear-gradient(90deg,transparent,#2563eb,transparent);
+  transform: rotate(-18deg);
+  animation: historyScan 1.7s ease-in-out infinite;
+}
+
+@keyframes historyScan{
+  0%,100%{ transform: translateY(-28px) rotate(-18deg); opacity: .25; }
+  50%{ transform: translateY(28px) rotate(-18deg); opacity: 1; }
+}
+
+.history-empty-card h3,
+.hc-empty-card h3{
+  margin: 8px 0 8px !important;
+  font-size: 1.1rem !important;
+  color: var(--history-text) !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+.history-empty-card p,
+.hc-empty-card p{
+  margin: 0 auto !important;
+  color: var(--history-muted) !important;
+  max-width: 360px;
+}
+
+/* Desktop médio: mantém o topo compacto sem encostar no card de período */
+@media (max-width: 1180px){
+  .history-filter-card-with-actions{
+    padding-top: 112px !important;
+  }
+
+  .history-top-action-row,
+  #historyActionRow{
+    left: 24px !important;
+    right: 24px !important;
+  }
+}
+
+/* Mobile/tablet: botões entram no fluxo normal, acima dos filtros */
+@media (max-width: 760px){
+  .history-filter-card-with-actions{
+    padding-top: 16px !important;
+  }
+
+  .history-top-action-row,
+  #historyActionRow{
+    position: static !important;
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .history-btn,
+  #historyTutorialBtn,
+  #exportHistoryPdfBtn,
+  button[data-history-action="tutorial"],
+  button[data-history-action="export-pdf"]{
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 62px !important;
+  }
+}
+
+body.dark-mode #historyTutorialBtn,
+body.dark-mode .history-tutorial-btn,
+body.dark-mode button[data-history-action="tutorial"],
+body.dark-mode .history-empty-card,
+body.dark-mode .hc-empty-card{
+  background: rgba(30,41,59,.94) !important;
+}

@@ -1,0 +1,214 @@
+
+/* ===== CORREÇÕES ADICIONAIS PARA MODO ESCURO ===== */
+
+/* Container principal do histórico */
+.dark-mode .history-section {
+    background: var(--bg);
+}
+
+/* Cards de insight */
+.dark-mode .insight-card {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+}
+
+.dark-mode .insight-card div {
+    color: var(--text) !important;
+}
+
+.dark-mode .insight-card .insight-title {
+    color: var(--text-light) !important;
+}
+
+/* Tabela */
+.dark-mode .history-table {
+    background: var(--card-bg);
+}
+
+.dark-mode .history-table tbody tr {
+    background: var(--surface);
+}
+
+.dark-mode .history-table tbody tr:hover {
+    background: var(--card-bg) !important;
+}
+
+.dark-mode .history-table td {
+    color: var(--text) !important;
+    border-bottom-color: var(--border) !important;
+}
+
+/* Cabeçalho da tabela */
+.dark-mode .table-header {
+    background: var(--card-bg) !important;
+    border-bottom-color: var(--border) !important;
+}
+
+.dark-mode .table-header h3 {
+    color: var(--text) !important;
+}
+
+/* Input de busca */
+.dark-mode .table-search {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+.dark-mode .table-search::placeholder {
+    color: var(--text-light) !important;
+}
+
+/* Botões de toggle */
+.dark-mode .toggle-dataset {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text-light) !important;
+}
+
+.dark-mode .toggle-dataset.active {
+    background: var(--primary) !important;
+    color: white !important;
+    border-color: var(--primary) !important;
+}
+
+.dark-mode .toggle-dataset.active .toggle-indicator {
+    background: white !important;
+}
+
+/* Botão de alternância */
+.dark-mode .chart-type-toggle {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+.dark-mode .chart-type-toggle:hover {
+    background: var(--card-bg) !important;
+}
+
+/* Botão gerar */
+.dark-mode .btn-generate {
+    background: var(--primary) !important;
+    color: white !important;
+}
+
+.dark-mode .btn-generate:hover {
+    background: var(--primary-hover) !important;
+}
+
+/* Períodos */
+.dark-mode .period-btn {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text-light) !important;
+}
+
+.dark-mode .period-btn:hover {
+    background: var(--card-bg) !important;
+    color: var(--text) !important;
+}
+
+.dark-mode .period-btn.active {
+    background: var(--primary) !important;
+    color: white !important;
+    border-color: var(--primary) !important;
+}
+
+/* Container de horário personalizado */
+.dark-mode #customTimeContainer {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+}
+
+.dark-mode #customTimeContainer label {
+    color: var(--text-light) !important;
+}
+
+.dark-mode #customStartTime,
+.dark-mode #customEndTime {
+    background: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+/* Scroll hint */
+.dark-mode .scroll-hint {
+    color: var(--text-light) !important;
+}
+
+.dark-mode .scroll-hint i {
+    color: var(--primary) !important;
+}
+
+/* Títulos */
+.dark-mode .history-header h2 {
+    color: var(--text) !important;
+}
+
+.dark-mode .history-header p {
+    color: var(--text-light) !important;
+}
+
+/* Labels */
+.dark-mode .control-group label {
+    color: var(--text-light) !important;
+}
+
+/* Container do gráfico */
+.dark-mode .chart-container {
+    background: var(--card-bg) !important;
+    border-color: var(--border) !important;
+}
+
+.dark-mode .chart-scroll {
+    background: var(--card-bg) !important;
+}
+
+.dark-mode .chart-inner {
+    background: var(--card-bg) !important;
+}
+
+/* Canvas do gráfico */
+.dark-mode #historyChart {
+    background: var(--card-bg) !important;
+}
+
+/* Tooltip do Chart.js */
+.dark-mode .chartjs-tooltip {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+/* Containers de insights */
+.dark-mode .insights-container {
+    background: var(--card-bg) !important;
+    border-color: var(--border) !important;
+}
+
+/* Linhas da tabela com cores dos valores */
+.dark-mode .history-table td:nth-child(2) { color: #3b82f6 !important; } /* Moldes */
+.dark-mode .history-table td:nth-child(3) { color: #94a3b8 !important; } /* Blanks */
+.dark-mode .history-table td:nth-child(4) { color: #f59e0b !important; } /* Neck Rings */
+.dark-mode .history-table td:nth-child(5) { color: #6b7280 !important; } /* Funís */
+
+/* Garantir que tudo tenha transição */
+.dark-mode * {
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Melhorias de contraste */
+.dark-mode .machine-select-button {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+.dark-mode .machine-select-button:hover {
+    border-color: var(--primary) !important;
+}
+
+.dark-mode .machine-select-button i {
+    color: var(--text-light) !important;
+}

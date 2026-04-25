@@ -1,0 +1,311 @@
+/* ================= MODAL SELECT ESTILOS ================= */
+
+.modal-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 15px;
+    background: var(--bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-height: 45px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.modal-select-trigger:hover {
+    border-color: var(--primary);
+    background: rgba(14, 165, 233, 0.05);
+}
+
+.modal-select-trigger .modal-select-value {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.modal-select-trigger i {
+    color: var(--text-light);
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+/* Overlay do modal */
+.modal-select-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    z-index: 10001;
+    display: none;
+}
+
+/* Container do modal */
+.modal-select-container {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 500px;
+    background: var(--card-bg);
+    border-radius: 16px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    z-index: 10002;
+    display: none;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+/* Cabeçalho */
+.modal-select-header {
+    padding: 20px 25px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.modal-select-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+}
+
+.modal-select-close {
+    background: none;
+    border: none;
+    color: var(--text-light);
+    font-size: 20px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.modal-select-close:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+}
+
+/* Busca */
+.modal-select-search {
+    padding: 15px 20px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+}
+
+.modal-select-search i {
+    position: absolute;
+    left: 35px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-light);
+    font-size: 14px;
+}
+
+.modal-select-search input {
+    width: 100%;
+    padding: 12px 15px 12px 45px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: all 0.2s;
+}
+
+.modal-select-search input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+/* Lista de opções */
+.modal-select-options {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+    background: var(--card-bg);
+}
+
+.modal-select-option {
+    padding: 12px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 2px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.modal-select-option:hover {
+    background: rgba(14, 165, 233, 0.1);
+    color: var(--primary);
+}
+
+.modal-select-option.selected {
+    background: rgba(14, 165, 233, 0.2);
+    color: var(--primary);
+    font-weight: 600;
+}
+
+/* Área de adicionar nova opção */
+.modal-select-add {
+    padding: 15px 20px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+}
+
+.modal-select-add input {
+    flex: 1;
+    padding: 12px 15px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+}
+
+.modal-select-add input:focus {
+    border-color: var(--primary);
+}
+
+.modal-select-add button {
+    padding: 12px 20px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.modal-select-add button:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.modal-select-add button i {
+    font-size: 12px;
+}
+
+/* Mensagem vazia */
+.modal-select-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-light);
+}
+
+.modal-select-empty i {
+    font-size: 40px;
+    margin-bottom: 15px;
+    opacity: 0.5;
+}
+
+.modal-select-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Animações */
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -48%);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.modal-select-container {
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .modal-select-container {
+        width: 95%;
+        max-width: none;
+    }
+    
+    .modal-select-add {
+        flex-direction: column;
+    }
+    
+    .modal-select-add button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Modo escuro */
+.dark-mode .modal-select-trigger {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode .modal-select-trigger:hover {
+    border-color: var(--primary);
+    background: rgba(14, 165, 233, 0.1);
+}
+
+.dark-mode .modal-select-container {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode .modal-select-header {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+.dark-mode .modal-select-search input {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark-mode .modal-select-options {
+    background: #1e293b;
+}
+
+.dark-mode .modal-select-option:hover {
+    background: rgba(14, 165, 233, 0.15);
+}
+
+.dark-mode .modal-select-add {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+.dark-mode .modal-select-add input {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}

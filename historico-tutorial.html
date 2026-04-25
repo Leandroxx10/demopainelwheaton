@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WMoldes | Tutorial do Histórico</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="history-admin-tutorial.css">
+</head>
+<body class="history-tutorial-page">
+  <main class="history-tutorial-shell">
+    <section class="history-tutorial-hero">
+      <div>
+        <div class="history-badge"><i class="fas fa-chart-line"></i> Tutorial do Histórico</div>
+        <h1>Como consultar o histórico das máquinas</h1>
+        <p class="history-lead">Aprenda a selecionar máquina, filtrar por data e turno, escolher os itens do gráfico e exportar o PDF com a tabela por horário.</p>
+        <div class="history-hero-actions">
+          <button class="history-primary" id="historyStartBtn"><i class="fas fa-play"></i> Iniciar passo a passo</button>
+          <a class="history-secondary" href="admin.html"><i class="fas fa-arrow-left"></i> Voltar ao admin</a>
+        </div>
+      </div>
+      <div class="history-hero-card" aria-hidden="true">
+        <div class="fake-window-top"><span></span><span></span><span></span></div>
+        <div class="fake-filter"><div class="fake-field">Máquina A2</div><div class="fake-field">23/04/2026</div></div>
+        <div class="fake-chart"></div>
+      </div>
+    </section>
+
+    <section class="history-layout">
+      <aside class="history-steps-nav">
+        <h2>Passos do treinamento</h2>
+        <div class="history-progress"><span id="historyProgressBar"></span></div>
+        <ol id="historyStepList"></ol>
+      </aside>
+
+      <section class="history-stage">
+        <div class="history-stage-header">
+          <div>
+            <span class="history-step-label" id="historyStepLabel">Etapa 1</span>
+            <h2 id="historyStepTitle">Escolha a máquina correta</h2>
+          </div>
+          <div class="history-nav-inline">
+            <button id="historyPrevStep" aria-label="Etapa anterior"><i class="fas fa-chevron-left"></i></button>
+            <button id="historyNextStep" aria-label="Próxima etapa"><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <p class="history-description" id="historyStepDescription"></p>
+
+        <div class="history-demo-area">
+          <div class="demo-toolbar">
+            <div class="demo-control" id="demoMachine">
+              <label><i class="fas fa-industry"></i> Máquina</label>
+              <div class="demo-input"><i class="fas fa-industry"></i> Máquina A2</div>
+            </div>
+            <div class="demo-control" id="demoDate">
+              <label><i class="fas fa-calendar"></i> Data</label>
+              <div class="demo-input">23/04/2026</div>
+            </div>
+            <div class="demo-control" id="demoPeriod">
+              <label><i class="fas fa-clock"></i> Período</label>
+              <div class="demo-period"><span>24h</span><span class="active">Turno 1<br>06:00–14:00</span><span>Turno 2<br>14:00–22:00</span><span>Turno 3<br>22:00–06:00</span></div>
+            </div>
+            <button class="demo-pdf-btn" id="demoPdf"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
+          </div>
+
+          <div class="demo-chips" id="demoChips">
+            <span class="demo-chip active">Moldes</span>
+            <span class="demo-chip active">Blanks</span>
+            <span class="demo-chip">Neck Rings</span>
+            <span class="demo-chip">Funís</span>
+          </div>
+
+          <div class="demo-chart" id="demoChart">
+            <svg viewBox="0 0 600 180" preserveAspectRatio="none">
+              <polyline points="0,130 90,110 180,112 270,70 360,88 450,60 600,92" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+              <polyline points="0,145 90,138 180,118 270,120 360,92 450,104 600,84" fill="none" stroke="#475569" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+        </div>
+        <div class="demo-callout" id="historyCallout"></div>
+      </section>
+    </section>
+  </main>
+  <script src="history-admin-tutorial.js"></script>
+</body>
+</html>

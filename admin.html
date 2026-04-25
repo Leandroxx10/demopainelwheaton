@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Administrativo | WMoldes</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.43/moment-timezone-with-data.min.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+    
+    <!-- Nossos arquivos -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="admin-style.css">
+    <link rel="stylesheet" href="prefix-modal.css">
+    
+</head>
+<body>
+    <!-- Overlay de loading enquanto verifica autenticação -->
+    <div id="authLoading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999;">
+        <div class="spinner" style="width: 50px; height: 50px; border: 4px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <p style="margin-top: 20px; color: var(--text);">Verificando autenticação...</p>
+    </div>
+    
+    <div class="admin-container" id="adminContainer" style="display: none;">
+        <!-- Cabeçalho do Admin -->
+        <header class="admin-header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button class="mobile-menu-toggle" id="mobileMenuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                
+                <div class="logo">
+                    <div class="logo-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                    <div class="logo-text">
+                        <h1>Painel Administrativo</h1>
+                        <p>WMoldes - Controle completo das máquinas</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-nav">
+                <div class="user-info" style="display: flex; align-items: center; gap: 10px; padding: 8px 15px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+                    <i class="fas fa-user-circle" style="color: var(--primary);"></i>
+                    <span id="currentUserEmail" style="font-size: 14px;">Carregando...</span>
+                </div>
+                <button class="btn" onclick="window.location.href='index.html'">
+                    <i class="fas fa-arrow-left"></i> Voltar ao Dashboard
+                </button>
+                <button class="btn" onclick="exportAllData()">
+                    <i class="fas fa-download"></i> Exportar Dados
+                </button>
+                <button class="btn" onclick="logoutAdmin()" style="background: var(--danger); color: white;">
+                    <i class="fas fa-sign-out-alt"></i> Sair
+                </button>
+            </div>
+        </header>
+        
+        <!-- Overlay para fechar menu no mobile -->
+        <div class="mobile-menu-overlay" id="mobileMenuOverlay"></div>
+        
+        <!-- Menu lateral (COM HISTÓRICO) -->
+        <nav class="admin-sidebar" id="adminSidebar">
+            <ul class="admin-menu">
+                <li><a href="#limits" onclick="showSection('limits'); closeMobileMenu();" class="active">
+                    <i class="fas fa-sliders-h"></i> Configurar Limites
+                </a></li>
+                <li><a href="#machines" onclick="showSection('machines'); closeMobileMenu();">
+                    <i class="fas fa-industry"></i> Gerenciar Máquinas
+                </a></li>
+                <li><a href="#prefixes" onclick="showSection('prefixes'); closeMobileMenu();">
+                    <i class="fas fa-tag"></i> Prefixos das Máquinas
+                </a></li>
+                <li><a href="#detailed-prefixes" onclick="showSection('detailed-prefixes'); closeMobileMenu();">
+                    <i class="fas fa-tags"></i> Prefixos Detalhados
+                </a></li>
+                <li><a href="#comments" onclick="showSection('comments'); closeMobileMenu();">
+                    <i class="fas fa-comments"></i> Comentários
+                </a></li>
+                <li><a href="#images" onclick="showSection('images'); closeMobileMenu();">
+                    <i class="fas fa-image"></i> Upload de Imagens
+                </a></li>
+                <li><a href="#history" onclick="showSection('history'); closeMobileMenu();">
+                    <i class="fas fa-chart-line"></i> Histórico
+                </a></li>
+            </ul>
+        </nav>
+        
+        <!-- Conteúdo principal -->
+        <main class="admin-content">
+            <!-- Seção: Configurar Limites -->
+            <section id="limits-section" class="admin-section active">
+                <h2><i class="fas fa-sliders-h"></i> Configurar Limites por Tipo de Processo</h2>
+                <p class="section-description">
+                    Os limites são definidos automaticamente pelo tipo de processo da máquina.<br>
+                    <strong>SG, DG, TG, QG, PS, PD, AMOSTRA</strong> - cada um tem valores predefinidos.
+                </p>
+                
+                <div class="process-limits-info" style="background: rgba(14, 165, 233, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 25px; border-left: 4px solid var(--primary);">
+                    <div style="display: flex; align-items: flex-start; gap: 15px;">
+                        <div style="flex-shrink: 0;">
+                            <i class="fas fa-info-circle" style="color: var(--primary); font-size: 24px;"></i>
+                        </div>
+                        <div>
+                            <h4 style="margin: 0 0 10px 0; color: var(--text); font-size: 16px;">
+                                Como funciona o novo sistema
+                            </h4>
+                            <p style="margin: 0 0 10px 0; color: var(--text); font-size: 14px;">
+                                <strong>1.</strong> Selecione uma máquina na lista abaixo<br>
+                                <strong>2.</strong> O sistema mostrará o tipo de processo atual (se existir)<br>
+                                <strong>3.</strong> Se não existir, selecione um tipo de processo na lista<br>
+                                <strong>4.</strong> Ao selecionar um processo, ele será salvo automaticamente<br>
+                                <strong>5.</strong> Os limites serão aplicados automaticamente
+                            </p>
+                            <div style="font-size: 13px; color: var(--text-light);">
+                                <i class="fas fa-lightbulb"></i> Para alterar os valores dos processos, entre em contato com o administrador
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="limits-controls" style="margin-bottom: 20px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="limitsMachineSelect">Selecione a Máquina:</label>
+                        <select id="limitsMachineSelect" class="search-input" style="width: 100%;" onchange="loadMachineLimitsByProcess()">
+                            <!-- Opções serão preenchidas dinamicamente -->
+                        </select>
+                    </div>
+                </div>
+                
+                <div id="processSelectionArea" style="margin-bottom: 25px;"></div>
+                <div id="processLimitsDisplay"></div>
+                
+                <div class="limits-config">
+                    <div class="limit-card">
+                        <div class="limit-header" style="background: var(--danger);">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <h3>Baixa Reserva</h3>
+                        </div>
+                        <div class="limit-body">
+                            <p>Quando o estoque estiver igual ou abaixo deste valor</p>
+                            <div class="limit-input">
+                                <input type="number" id="limitCritico" min="0" max="20" value="3" disabled>
+                                <span>unidades</span>
+                            </div>
+                            <div class="limit-preview" style="background: var(--danger);">
+                                ≤ <span id="previewCritico">3</span> unidades
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="limit-card">
+                        <div class="limit-header" style="background: var(--warning);">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <h3>Baixo Estoque</h3>
+                        </div>
+                        <div class="limit-body">
+                            <p>Quando o estoque estiver entre os valores</p>
+                            <div class="limit-input">
+                                <input type="number" id="limitBaixo" min="1" max="20" value="5" disabled>
+                                <span>unidades</span>
+                            </div>
+                            <div class="limit-preview" style="background: var(--warning);">
+                                <span id="previewBaixoMin">4</span> - <span id="previewBaixoMax">5</span> unidades
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="limit-card">
+                        <div class="limit-header" style="background: var(--success);">
+                            <i class="fas fa-check-circle"></i>
+                            <h3>Bem Abastecido</h3>
+                        </div>
+                        <div class="limit-body">
+                            <p>Quando o estoque estiver acima deste valor</p>
+                            <div class="limit-input">
+                                <input type="number" id="limitNormal" min="1" max="20" value="6" disabled>
+                                <span>unidades</span>
+                            </div>
+                            <div class="limit-preview" style="background: var(--success);">
+                                ≥ <span id="previewNormal">6</span> unidades
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="process-limits-reference" style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border);">
+                    <h3 style="font-size: 18px; margin-bottom: 15px; color: var(--text); display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-table"></i> Referência de Limites por Tipo de Processo
+                    </h3>
+                    
+                    <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tipo</th>
+                                    <th>Nome</th>
+                                    <th>Baixa Reserva</th>
+                                    <th>Baixo Estoque</th>
+                                    <th>Bem Abastecido</th>
+                                    <th>Descrição</th>
+                                </tr>
+                            </thead>
+                            <tbody id="processLimitsTable">
+                                <!-- Preenchido dinamicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button class="btn" onclick="resetToDefaultProcessLimits()">
+                        <i class="fas fa-undo"></i> Usar Padrão (DG)
+                    </button>
+                    <button class="btn" onclick="exportProcessLimits()" style="background: var(--secondary); color: white;">
+                        <i class="fas fa-download"></i> Exportar Limites
+                    </button>
+                </div>
+            </section>
+            
+            <!-- Seção: Gerenciar Máquinas -->
+            <section id="machines-section" class="admin-section">
+                <h2><i class="fas fa-industry"></i> Gerenciar Máquinas</h2>
+                <p class="section-description">Edite os valores de cada máquina individualmente. Você também pode adicionar prefixos e comentários diretamente aqui.</p>
+                
+                <div class="machines-filter">
+                    <input type="text" id="adminMachineSearch" placeholder="Buscar máquina..." 
+                           class="search-input" onkeyup="filterAdminMachines()">
+                    <select id="fornoFilter" onchange="filterAdminMachines()">
+                        <option value="">Todos os Fornos</option>
+                        <option value="A">Forno A</option>
+                        <option value="B">Forno B</option>
+                        <option value="C">Forno C</option>
+                        <option value="D">Forno D</option>
+                    </select>
+                </div>
+                
+                <div class="machines-grid" id="machinesGrid">
+                    <!-- Máquinas serão carregadas dinamicamente -->
+                    <div class="loading-message">
+                        <div class="spinner"></div>
+                        <p>Carregando máquinas...</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Seção: Prefixos das Máquinas -->
+            <section id="prefixes-section" class="admin-section">
+                <h2><i class="fas fa-tag"></i> Prefixos das Máquinas</h2>
+                <p class="section-description">Visualize e gerencie os relacionamentos entre máquinas e prefixos detalhados.</p>
+                
+                <div class="prefixes-container">
+                    <div class="prefix-form">
+                        <h3><i class="fas fa-info-circle"></i> Como Funciona</h3>
+                        <div style="background: rgba(139, 92, 246, 0.1); padding: 20px; border-radius: 8px; border-left: 4px solid #8b5cf6;">
+                            <p style="color: var(--text); margin-bottom: 15px;">
+                                <strong>Novo Sistema:</strong> Agora você pode atribuir prefixos detalhados às máquinas usando a seção 
+                                <strong>"Gerenciar Máquinas"</strong>.
+                            </p>
+                            <p style="color: var(--text); margin-bottom: 10px;">
+                                Para atribuir um prefixo:
+                            </p>
+                            <ol style="color: var(--text); padding-left: 20px; margin-bottom: 15px;">
+                                <li>Vá para <strong>"Gerenciar Máquinas"</strong></li>
+                                <li>Clique no botão <strong>"Prefixos"</strong> da máquina desejada</li>
+                                <li>Selecione um prefixo da lista de prefixos detalhados</li>
+                                <li>Clique em <strong>"Salvar"</strong></li>
+                            </ol>
+                            <p style="color: var(--text); font-size: 13px;">
+                                <i class="fas fa-exclamation-triangle"></i> Esta seção agora é apenas para visualização. 
+                                Use "Prefixos Detalhados" para criar novos prefixos.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="prefixes-list">
+                        <h3><i class="fas fa-list"></i> Relacionamentos Atuais</h3>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Máquina</th>
+                                        <th>Prefixo Atribuído</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="prefixesTable">
+                                    <!-- Dados serão preenchidos dinamicamente -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Seção: Prefixos Detalhados -->
+            <section id="detailed-prefixes-section" class="admin-section">
+                <h2><i class="fas fa-tags"></i> Prefixos Detalhados</h2>
+                <p class="section-description">Cadastro completo de prefixos com todas as especificações técnicas e imagens permanentes.</p>
+                
+                <div class="prefixes-detailed-container" style="display: flex !important; flex-direction: column !important; gap: 30px !important; width: 100% !important;">
+                    
+                    <!-- FORMULÁRIO (EM CIMA) -->
+                    <div class="detailed-prefix-form" id="detailedPrefixForm" style="width: 100% !important; order: 1 !important;">
+                        <h3><i class="fas fa-plus-circle"></i> Cadastrar Novo Prefixo</h3>
+                        
+                        <!-- Linha 1: Prefixo e Processo -->
+                        <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                            <div class="form-group" style="flex: 2; min-width: 250px;">
+                                <label for="prefixGrande">Prefixo: *</label>
+                                <input type="text" id="prefixGrande" placeholder="Ex: SB1036, Molde X" style="font-weight: 600; width: 100%;">
+                                <div class="form-hint">Nome principal do prefixo</div>
+                            </div>
+                            
+                            <div class="form-group" style="flex: 1; min-width: 200px;">
+                                <label for="prefixProcesso">Tipo de Processo: *</label>
+                                <select id="prefixProcesso" style="width: 100%;">
+                                    <option value="">Selecione</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Linha 2: Localização (Corredor e Prateleira) -->
+                        <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                            <div class="form-group" style="flex: 1; min-width: 150px;">
+                                <label for="prefixCorredor">Corredor:</label>
+                                <select id="prefixCorredor" style="width: 100%;">
+                                    <option value="">Selecione</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group" style="flex: 2; min-width: 250px;">
+                                <label for="prefixPrateleira">Prateleira:</label>
+                                <input type="text" id="prefixPrateleira" placeholder="Ex: A3, B12, C5" style="width: 100%;">
+                            </div>
+                        </div>
+                        
+                        <!-- Linha 3: Upload de Imagem -->
+                        <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap; align-items: flex-start;">
+                            <div class="form-group" style="flex: 1; min-width: 250px;">
+                                <label for="prefixImageFile">Selecionar Imagem:</label>
+                                <input type="file" id="prefixImageFile" accept="image/*" onchange="previewPrefixImage()" style="width: 100%;">
+                            </div>
+                            
+                            <div class="form-group" style="flex: 2; min-width: 300px;">
+                                <div class="image-preview" id="prefixImagePreview" style="min-height: 120px; background: var(--bg); border: 2px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 10px;">
+                                    <p style="color: var(--text-light); margin: 0;">Nenhuma imagem selecionada</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Linha 4: Botões de imagem e imagem atual -->
+                        <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap; align-items: center;">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-small" onclick="uploadPrefixImage()" style="background: var(--primary); color: white;">
+                                    <i class="fas fa-upload"></i> Upload
+                                </button>
+                                <button type="button" class="btn btn-small" onclick="clearPrefixImage()">
+                                    <i class="fas fa-times"></i> Limpar
+                                </button>
+                            </div>
+                            
+                            <div id="currentPrefixImageContainer" style="display: none; flex: 1; max-width: 200px;">
+                                <div style="position: relative;">
+                                    <img id="currentPrefixImage" src="" alt="Imagem do prefixo" style="width: 100%; height: 80px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); cursor: pointer;" onclick="viewPrefixImageFull(this.src)">
+                                    <button type="button" class="btn-small btn-danger" onclick="deletePrefixImage()" style="position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; padding: 0;">
+                                        <i class="fas fa-trash" style="font-size: 12px;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <input type="hidden" id="prefixImageUrl" value="">
+                        </div>
+                        
+                        <!-- Terminações com SELECT MODAL -->
+                        <div class="form-section" style="margin-top: 30px; padding-top: 25px; border-top: 2px solid var(--border);">
+                            <h4 style="font-size: 18px; margin-bottom: 20px; color: var(--text); display: flex; align-items: center; gap: 10px;">
+                                <i class="fas fa-cogs"></i> Terminações
+                            </h4>
+                            
+                            <!-- Linha 5: Prefixos Molde e Blank -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 250px;">
+                                    <label for="prefixoMolde">Prefixos Molde:</label>
+                                    <div class="modal-select-trigger" data-field="prefixoMolde" data-value="" onclick="openModalSelect('prefixoMolde')">
+                                        <span class="modal-select-value" id="display-prefixoMolde">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixoMolde" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 250px;">
+                                    <label for="prefixoBlank">Prefixos Blank:</label>
+                                    <div class="modal-select-trigger" data-field="prefixoBlank" data-value="" onclick="openModalSelect('prefixoBlank')">
+                                        <span class="modal-select-value" id="display-prefixoBlank">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixoBlank" value="">
+                                </div>
+                            </div>
+                            
+                            <!-- Linha 6: Neckring e Anéis Guias -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 250px;">
+                                    <label for="prefixNeckring">Neckring:</label>
+                                    <div class="modal-select-trigger" data-field="prefixNeckring" data-value="" onclick="openModalSelect('prefixNeckring')">
+                                        <span class="modal-select-value" id="display-prefixNeckring">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixNeckring" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 250px;">
+                                    <label for="prefixAneisGuias">Anéis Guias:</label>
+                                    <div class="modal-select-trigger" data-field="prefixAneisGuias" data-value="" onclick="openModalSelect('prefixAneisGuias')">
+                                        <span class="modal-select-value" id="display-prefixAneisGuias">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixAneisGuias" value="">
+                                </div>
+                            </div>
+                            
+                            <!-- Linha 7: Thimble, Macho e Cooler (3 colunas) -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixThimble">Thimble:</label>
+                                    <div class="modal-select-trigger" data-field="prefixThimble" data-value="" onclick="openModalSelect('prefixThimble')">
+                                        <span class="modal-select-value" id="display-prefixThimble">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixThimble" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixMacho">Macho:</label>
+                                    <div class="modal-select-trigger" data-field="prefixMacho" data-value="" onclick="openModalSelect('prefixMacho')">
+                                        <span class="modal-select-value" id="display-prefixMacho">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixMacho" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixCooler">Cooler:</label>
+                                    <div class="modal-select-trigger" data-field="prefixCooler" data-value="" onclick="openModalSelect('prefixCooler')">
+                                        <span class="modal-select-value" id="display-prefixCooler">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixCooler" value="">
+                                </div>
+                            </div>
+                            
+                            <!-- Linha 8: Baffle, Baffle Plug e Funil (3 colunas) -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixBaffle">Baffle:</label>
+                                    <div class="modal-select-trigger" data-field="prefixBaffle" data-value="" onclick="openModalSelect('prefixBaffle')">
+                                        <span class="modal-select-value" id="display-prefixBaffle">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixBaffle" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixBafflePlug">Baffle Plug:</label>
+                                    <div class="modal-select-trigger" data-field="prefixBafflePlug" data-value="" onclick="openModalSelect('prefixBafflePlug')">
+                                        <span class="modal-select-value" id="display-prefixBafflePlug">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixBafflePlug" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixFunil">Funil:</label>
+                                    <div class="modal-select-trigger" data-field="prefixFunil" data-value="" onclick="openModalSelect('prefixFunil')">
+                                        <span class="modal-select-value" id="display-prefixFunil">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixFunil" value="">
+                                </div>
+                            </div>
+                            
+                            <!-- Linha 9: Fundo, Fundo Plug e Soprador (3 colunas) -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixFundo">Fundo:</label>
+                                    <div class="modal-select-trigger" data-field="prefixFundo" data-value="" onclick="openModalSelect('prefixFundo')">
+                                        <span class="modal-select-value" id="display-prefixFundo">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixFundo" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixFundoPlug">Fundo Plug:</label>
+                                    <div class="modal-select-trigger" data-field="prefixFundoPlug" data-value="" onclick="openModalSelect('prefixFundoPlug')">
+                                        <span class="modal-select-value" id="display-prefixFundoPlug">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixFundoPlug" value="">
+                                </div>
+                                
+                                <div class="form-group" style="flex: 1; min-width: 150px;">
+                                    <label for="prefixSoprador">Soprador:</label>
+                                    <div class="modal-select-trigger" data-field="prefixSoprador" data-value="" onclick="openModalSelect('prefixSoprador')">
+                                        <span class="modal-select-value" id="display-prefixSoprador">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixSoprador" value="">
+                                </div>
+                            </div>
+                            
+                            <!-- Linha 10: Pinças (2 colunas) -->
+                            <div class="form-row" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="flex: 1; min-width: 250px;">
+                                    <label for="prefixPinca">Pinças:</label>
+                                    <div class="modal-select-trigger" data-field="prefixPinca" data-value="" onclick="openModalSelect('prefixPinca')">
+                                        <span class="modal-select-value" id="display-prefixPinca">Selecione</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                    <input type="hidden" id="prefixPinca" value="">
+                                </div>
+                                <div style="flex: 1;"></div> <!-- Espaço vazio para alinhamento -->
+                            </div>
+                            
+                            <!-- Botões de ação do formulário -->
+                            <div class="form-actions" style="margin-top: 30px; display: flex; gap: 15px; flex-wrap: wrap;">
+                                <button class="btn btn-primary" onclick="saveDetailedPrefix()">
+                                    <i class="fas fa-save"></i> Salvar Prefixo
+                                </button>
+                                <button class="btn" onclick="clearPrefixForm()" id="clearPrefixFormBtn">
+                                    <i class="fas fa-times"></i> Limpar Formulário
+                                </button>
+                                <button class="btn" onclick="openSelectOptionsManager()" style="background: var(--secondary); color: white;">
+                                    <i class="fas fa-list-ul"></i> Gerenciar Opções
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- LISTA DE PREFIXOS (EMBAIXO) -->
+                    <div class="detailed-prefixes-list" style="width: 100% !important; order: 2 !important;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                            <h3 style="margin: 0;"><i class="fas fa-list"></i> Prefixos Cadastrados</h3>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <input type="text" id="prefixSearch" placeholder="Buscar prefixo..." 
+                                       class="search-input" style="width: 250px;" onkeyup="searchPrefixes()">
+                                <button class="btn" onclick="exportPrefixData()">
+                                    <i class="fas fa-download"></i> Exportar
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Tabela com scroll horizontal -->
+                        <div class="table-container" style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+                            <table style="min-width: 1300px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 120px;">Prefixo</th>
+                                        <th style="width: 80px;">Processo</th>
+                                        <th style="width: 120px;">Localização</th>
+                                        <th style="width: 120px;">Prefixo Molde</th>
+                                        <th style="width: 120px;">Prefixo Blank</th>
+                                        <th style="width: 100px;">Neckring</th>
+                                        <th style="width: 100px;">Imagem</th>
+                                        <th style="width: 100px;">Criado em</th>
+                                        <th style="width: 120px;">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="detailedPrefixTable">
+                                    <!-- Dados serão preenchidos dinamicamente -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Seção: Comentários -->
+            <section id="comments-section" class="admin-section">
+                <h2><i class="fas fa-comments"></i> Comentários</h2>
+                <p class="section-description">Adicione observações e comentários para cada máquina.</p>
+                
+                <div class="comments-container">
+                    <div class="comment-form">
+                        <h3><i class="fas fa-edit"></i> Adicionar Comentário</h3>
+                        <div class="form-group">
+                            <label for="commentMachine">Máquina:</label>
+                            <select id="commentMachine"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="commentAuthor">Autor:</label>
+                            <input type="text" id="commentAuthor" placeholder="Seu nome">
+                        </div>
+                        <div class="form-group">
+                            <label for="commentText">Comentário:</label>
+                            <textarea id="commentText" rows="4" placeholder="Digite suas observações..."></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="saveComment()">
+                                <i class="fas fa-save"></i> Salvar Comentário
+                            </button>
+                            <button class="btn" onclick="clearCommentForm()">
+                                <i class="fas fa-times"></i> Limpar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="comments-list">
+                        <h3><i class="fas fa-history"></i> Comentários Recentes</h3>
+                        <div class="comments-cards" id="commentsList"></div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Seção: Upload de Imagens -->
+            <section id="images-section" class="admin-section">
+                <h2><i class="fas fa-image"></i> Upload de Imagens</h2>
+                <p class="section-description">Faça upload de fotos dos equipamentos usando a API do ImgBB.</p>
+                
+                <div class="images-container">
+                    <div class="image-upload-form">
+                        <h3><i class="fas fa-upload"></i> Upload de Imagem</h3>
+                        <div class="form-group">
+                            <label for="imageMachine">Máquina:</label>
+                            <select id="imageMachine"></select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="imageFile">Selecionar Imagem:</label>
+                            <input type="file" id="imageFile" accept="image/*" onchange="previewImage()">
+                        </div>
+                        
+                        <div class="image-preview" id="imagePreview">
+                            <p>Nenhuma imagem selecionada</p>
+                        </div>
+                        
+                        <div class="upload-info">
+                            <div class="info-box">
+                                <i class="fas fa-info-circle"></i>
+                                <p>API Key: <code>2a25342d2ee5a8abc7c249f07f874799</code></p>
+                                <p class="small">Imagens serão enviadas para o ImgBB e salvas no Firebase</p>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="uploadImage()" id="uploadBtn">
+                                <i class="fas fa-upload"></i> Upload para ImgBB
+                            </button>
+                            <button class="btn" onclick="clearImageForm()">
+                                <i class="fas fa-times"></i> Limpar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="images-list">
+                        <h3><i class="fas fa-images"></i> Imagens Cadastradas</h3>
+                        <div class="images-grid" id="imagesGrid"></div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Seção: Histórico de Produção -->
+            <section id="history-section" class="admin-section">
+                <div class="history-section">
+                    <div class="history-header">
+                        <h2>Histórico de Produção</h2>
+                        <p>Registros automáticos a cada hora • Alterações em tempo real ⚡ • Horário de São Paulo</p>
+                    </div>
+                    
+                    <!-- Controles -->
+                    <div class="history-controls">
+                        <div class="controls-row">
+                            <div class="control-group">
+                                <label><i class="fas fa-industry"></i> MÁQUINA</label>
+                                <select id="historyMachineSelect">
+                                    <option value="">Carregando...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="control-group">
+                                <label><i class="fas fa-calendar"></i> DATA</label>
+                                <select id="historyDate" class="date-select">
+                                    <!-- Preenchido via JavaScript -->
+                                </select>
+                            </div>
+                            
+                            <div class="control-group">
+                                <label><i class="fas fa-clock"></i> PERÍODO</label>
+                                <div class="period-selector">
+                                    <button class="period-btn active" data-period="24h" onclick="setPeriod('24h')">24h</button>
+                                    
+                                    <button class="period-btn" data-period="custom" onclick="setPeriod('custom')">✎ Personalizar</button>
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 12px;">
+                                <button class="chart-type-toggle" id="toggleChartBtn" onclick="toggleChartType()">
+                                    <i class="fas fa-chart-bar"></i> Barras
+                                </button>
+                                
+                                <button class="btn-generate" onclick="loadHistoryChart()">
+                                    <i class="fas fa-chart-line"></i>
+                                    Gerar Análise
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Horário Personalizado (inicialmente oculto) -->
+                        <div id="customTimeContainer" style="display: none; margin-top: 20px; padding: 20px; background: #f9fafb; border-radius: 10px; border: 1px solid #e5e7eb;">
+                            <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; font-size: 12px; color: #4b5563; margin-bottom: 6px;">HORA INICIAL</label>
+                                    <input type="time" id="customStartTime" value="00:00" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px;">
+                                </div>
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; font-size: 12px; color: #4b5563; margin-bottom: 6px;">HORA FINAL</label>
+                                    <input type="time" id="customEndTime" value="23:59" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px;">
+                                </div>
+                                <button onclick="applyCustomPeriod()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; height: 42px;">
+                                    <i class="fas fa-check"></i> Aplicar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- BOTÕES DE TOGGLE -->
+                    <div class="toggle-datasets">
+                        <button class="toggle-dataset active" id="toggleMolde" style="--cor: #2563eb;">
+                            <span class="toggle-indicator"></span>
+                            Moldes
+                        </button>
+                        <button class="toggle-dataset active" id="toggleBlank" style="--cor: #4b5563;">
+                            <span class="toggle-indicator"></span>
+                            Blanks
+                        </button>
+                        <button class="toggle-dataset active" id="toggleNeckring" style="--cor: #b45309;">
+                            <span class="toggle-indicator"></span>
+                            Neck Rings
+                        </button>
+                        <button class="toggle-dataset active" id="toggleFunil" style="--cor: #6b7280;">
+                            <span class="toggle-indicator"></span>
+                            Funís
+                        </button>
+                    </div>
+                    
+                    <!-- Gráfico -->
+                    <div class="chart-container">
+                        <div class="chart-scroll">
+                            <div class="chart-inner">
+                                <canvas id="historyChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="scroll-hint">
+                            <i class="fas fa-arrow-left"></i>
+                            <span>Arraste para navegar</span>
+                            <i class="fas fa-arrow-right"></i>
+                            <span style="margin-left: 20px;">⏰ = Horário | ⚡ = Tempo real</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Insights -->
+                    <div class="insights-container" id="chartInsights"></div>
+                    
+                    <!-- Tabela -->
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3><i class="fas fa-table"></i> Registros do dia</h3>
+                            <input type="text" class="table-search" placeholder="Buscar..." onkeyup="filterHistoryTable(this)">
+                        </div>
+                        <div class="table-scroll">
+                            <table class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Horário</th>
+                                        <th>Moldes</th>
+                                        <th>Blanks</th>
+                                        <th>Neck Rings</th>
+                                        <th>Funís</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody">
+                                    <tr><td colspan="5" class="no-data">Selecione uma máquina e data</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MODAL SEM REGISTROS -->
+            <div class="modal" id="noDataModal">
+                <div class="modal-content" style="max-width: 400px; text-align: center;">
+                    <div style="font-size: 60px; color: #9ca3af; margin-bottom: 20px;">
+                        <i class="fas fa-database"></i>
+                    </div>
+                    <h3 style="color: #111827; margin-bottom: 10px;">Nenhum registro encontrado</h3>
+                    <p style="color: #6b7280; margin-bottom: 25px;">
+                        Não há dados para a máquina e data selecionada.<br>
+                        Tente outra data ou período.
+                    </p>
+                    <button onclick="closeNoDataModal()" style="background: #2563eb; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 14px; cursor: pointer;">
+                        Entendi
+                    </button>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Rodapé -->
+        <footer class="admin-footer">
+            <p>WMoldes Painel Administrativo &copy; 2026 | Versão 2.0</p>
+            <p class="status-info">
+                Status: <span id="adminConnectionStatus">Conectando...</span>
+            </p>
+        </footer>
+    </div>
+    
+    <!-- MODAL DE SELEÇÃO DE PREFIXO -->
+    <div class="modal-select-overlay" id="modalSelectOverlay" onclick="closeModalSelect()"></div>
+    <div class="modal-select-container" id="modalSelectContainer">
+        <div class="modal-select-header">
+            <h3 id="modalSelectTitle">Selecionar Opção</h3>
+            <button class="modal-select-close" onclick="closeModalSelect()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="modal-select-search">
+            <i class="fas fa-search"></i>
+            <input type="text" id="modalSelectSearch" placeholder="Buscar..." onkeyup="filterModalOptions()">
+        </div>
+        
+        <div class="modal-select-options" id="modalSelectOptions"></div>
+        
+        <div class="modal-select-add">
+            <input type="text" id="modalSelectNewOption" placeholder="Digite uma nova opção...">
+            <button onclick="addNewOptionFromModal()">
+                <i class="fas fa-plus"></i> Adicionar
+            </button>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="firebase-config.js"></script>
+    <script src="auth.js"></script>
+    <script src="image-zoom.js"></script>
+    <script src="process-limits.js"></script>
+    <script src="admin.js"></script>
+    <script src="prefix-manager.js"></script>
+    <script src="prefix-modal-select.js"></script>
+    <script src="auto-history-service.js"></script>
+    <script src="machine-select-modal.js"></script>
+    <script src="history-charts.js"></script>
+    <script src="theme-manager.js"></script>
+    <script src="history-polish.js"></script>
+
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="admin-style.css">
+    <link rel="stylesheet" href="history-styles.css">
+    <link rel="stylesheet" href="dark-mode-fixes.css">
+    <link rel="stylesheet" href="prefix-modal.css">
+    <link rel="stylesheet" href="history-charts.css">
+    <link rel="stylesheet" href="history-polish.css">
+    
+    <!-- ESTILO FORÇADO PARA GARANTIR FORMULÁRIO EM CIMA E LISTA EMBAIXO -->
+    <style>
+        /* Forçar formulário em cima e lista embaixo em qualquer resolução */
+        #detailed-prefixes-section .prefixes-detailed-container {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 30px !important;
+            width: 100% !important;
+        }
+        
+        #detailed-prefixes-section .detailed-prefix-form {
+            width: 100% !important;
+            margin-bottom: 20px !important;
+            order: 1 !important;
+        }
+        
+        #detailed-prefixes-section .detailed-prefixes-list {
+            width: 100% !important;
+            order: 2 !important;
+        }
+        
+        /* Remover qualquer grid ou flex row em todas as resoluções */
+        @media (min-width: 768px) {
+            #detailed-prefixes-section .prefixes-detailed-container {
+                flex-direction: column !important;
+            }
+        }
+        
+        @media (min-width: 1024px) {
+            #detailed-prefixes-section .prefixes-detailed-container {
+                flex-direction: column !important;
+            }
+        }
+        
+        @media (min-width: 1280px) {
+            #detailed-prefixes-section .prefixes-detailed-container {
+                flex-direction: column !important;
+            }
+        }
+        
+        @media (min-width: 1440px) {
+            #detailed-prefixes-section .prefixes-detailed-container {
+                flex-direction: column !important;
+            }
+        }
+    </style>
+    
+    <script>
+        // Funções para menu mobile
+        function setupMobileMenu() {
+            const menuToggle = document.getElementById('mobileMenuToggle');
+            const menuOverlay = document.getElementById('mobileMenuOverlay');
+            const sidebar = document.getElementById('adminSidebar');
+            
+            if (menuToggle && sidebar) {
+                menuToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('active');
+                    if (menuOverlay) menuOverlay.classList.toggle('active');
+                    document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
+                });
+                
+                if (menuOverlay) {
+                    menuOverlay.addEventListener('click', function() {
+                        sidebar.classList.remove('active');
+                        menuOverlay.classList.remove('active');
+                        document.body.style.overflow = '';
+                    });
+                }
+            }
+        }
+        
+        function closeMobileMenu() {
+            const sidebar = document.getElementById('adminSidebar');
+            const menuOverlay = document.getElementById('mobileMenuOverlay');
+            if (sidebar && menuOverlay && window.innerWidth <= 1024) {
+                sidebar.classList.remove('active');
+                menuOverlay.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+        
+        function logoutAdmin() {
+            if (confirm('Deseja realmente sair do painel administrativo?')) {
+                logout().then(() => {
+                    window.location.href = 'login.html';
+                }).catch(() => {
+                    window.location.href = 'login.html';
+                });
+            }
+        }
+        
+        function showSectionSimple(sectionId) {
+            document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.admin-menu a').forEach(l => l.classList.remove('active'));
+            
+            const section = document.getElementById(`${sectionId}-section`);
+            if (section) section.classList.add('active');
+            
+            const menuLink = document.querySelector(`.admin-menu a[href="#${sectionId}"]`);
+            if (menuLink) menuLink.classList.add('active');
+        }
+        
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', async function() {
+            setupMobileMenu();
+            
+            try {
+                const user = await checkAuth();
+                const loading = document.getElementById('authLoading');
+                const adminContainer = document.getElementById('adminContainer');
+                
+                if (user) {
+                    const userEmailEl = document.getElementById('currentUserEmail');
+                    if (userEmailEl) userEmailEl.textContent = user.email;
+                    
+                    if (loading) loading.style.display = 'none';
+                    if (adminContainer) adminContainer.style.display = 'grid';
+                    
+                    setTimeout(() => {
+                        if (typeof initAdminPanel === 'function') initAdminPanel();
+                        if (typeof initPrefixManager === 'function') setTimeout(initPrefixManager, 1000);
+                        if (typeof initModalSelect === 'function') initModalSelect();
+                    }, 100);
+                } else {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error("Erro na autenticação:", error);
+                const loading = document.getElementById('authLoading');
+                if (loading) {
+                    loading.innerHTML = `
+                        <div style="text-align: center; padding: 40px;">
+                            <i class="fas fa-exclamation-triangle" style="font-size: 60px; color: var(--warning); margin-bottom: 20px;"></i>
+                            <h3 style="color: var(--text); margin-bottom: 10px;">Erro de Conexão</h3>
+                            <p style="color: var(--text-light); margin-bottom: 20px;">Não foi possível conectar ao servidor.</p>
+                            <button class="btn" onclick="window.location.reload()" style="background: var(--primary); color: white;">
+                                <i class="fas fa-redo"></i> Tentar Novamente
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        });
+        
+        // Configurar navegação
+        document.addEventListener('DOMContentLoaded', function() {
+            const menuLinks = document.querySelectorAll('.admin-menu a');
+            menuLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const target = this.getAttribute('href').substring(1);
+                    showSectionSimple(target);
+                    closeMobileMenu();
+                });
+            });
+        });
+    </script>
+</body>
+</html>
