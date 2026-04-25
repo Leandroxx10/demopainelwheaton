@@ -317,3 +317,8 @@ body.dark .history-note-icon-btn,
   content: "Manutenção • ";
   color: #f8fafc;
 }
+
+
+.history-notes-toolbar.is-disabled {
+  display: none !important;
+}

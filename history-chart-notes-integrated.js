@@ -155,6 +155,8 @@
     STATE.currentMachine = getSelectedMachine();
     STATE.currentDate = getSelectedDate();
 
+    if (!STATE.currentMachine) return [];
+
     const savedNotes = STATE.notes.filter(n =>
       n.machine === STATE.currentMachine &&
       normalizeDate(n.date) === STATE.currentDate &&
@@ -196,53 +198,98 @@
     }
   }
 
+  function extractTimeFromAny(value) {
+    if (!value) return '';
+    if (typeof value === 'number') {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      return '';
+    }
+
+    const text = String(value);
+    const hour = text.match(/(\d{1,2}):(\d{2})/);
+    if (hour) return `${pad2(hour[1])}:${hour[2]}`;
+
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) return `${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+
+    return '';
+  }
+
+  function getField(obj, names) {
+    if (!obj) return undefined;
+    for (const name of names) {
+      if (obj[name] !== undefined && obj[name] !== null && obj[name] !== '') return obj[name];
+    }
+    return undefined;
+  }
+
   function getMaintenanceInfo(machine) {
     const sources = [
       window.machineMaintenance,
       window.maintenanceData,
       window.allMachineMaintenance,
+      window.manutencoes,
+      window.maintenanceRecords,
       getGlobalValue('machineMaintenance'),
       getGlobalValue('maintenanceData'),
-      getGlobalValue('allMachineMaintenance')
+      getGlobalValue('allMachineMaintenance'),
+      getGlobalValue('manutencoes'),
+      getGlobalValue('maintenanceRecords')
     ].filter(Boolean);
+
+    const readItem = (item) => {
+      if (!item) return null;
+
+      // Se vier uma lista de eventos, usa o último evento ativo ou o mais recente.
+      if (Array.isArray(item)) {
+        const sorted = item.slice().sort((a, b) => Number(getField(b, ['createdAt','startedAt','inicioTimestamp','timestamp','updatedAt']) || 0) - Number(getField(a, ['createdAt','startedAt','inicioTimestamp','timestamp','updatedAt']) || 0));
+        for (const row of sorted) {
+          const info = readItem(row);
+          if (info) return info;
+        }
+        return null;
+      }
+
+      const active =
+        item.isInMaintenance === true ||
+        item.emManutencao === true ||
+        item.maintenance === true ||
+        item.manutencao === true ||
+        item.status === 'maintenance' ||
+        item.status === 'manutencao' ||
+        item.status === 'manutenção' ||
+        item.status === 'parada' ||
+        item.tipoStatus === 'manutencao';
+
+      const hasMaintenanceTime =
+        getField(item, ['startTime','horaInicio','inicio','maintenanceStart','startedAt','inicioManutencao','start']) ||
+        getField(item, ['endTime','horaFim','fim','maintenanceEnd','endedAt','fimManutencao','end']);
+
+      if (!active && !hasMaintenanceTime) return null;
+
+      const startRaw = getField(item, ['startTime','horaInicio','inicio','maintenanceStart','startedAt','inicioManutencao','start','createdAt','timestamp']);
+      const endRaw = getField(item, ['endTime','horaFim','fim','maintenanceEnd','endedAt','fimManutencao','end','returnedAt','retorno','returnTime']);
+
+      return {
+        isInMaintenance: true,
+        reason: getField(item, ['reason','motivo','message','mensagem','observacao','observação','maintenanceReason']) || '',
+        type: getField(item, ['type','tipo']) || 'Manutenção corretiva',
+        startTime: extractTimeFromAny(startRaw),
+        endTime: extractTimeFromAny(endRaw)
+      };
+    };
 
     for (const source of sources) {
       const item = source[machine] || source[String(machine)];
-      if (!item) continue;
-      const active =
-        item.isInMaintenance === true ||
-        item.maintenance === true ||
-        item.status === 'maintenance' ||
-        item.status === 'manutencao' ||
-        item.status === 'manutenção';
-
-      if (active) {
-        return {
-          isInMaintenance: true,
-          reason: item.reason || item.motivo || item.message || item.observacao || item.observação || '',
-          type: item.type || item.tipo || 'Manutenção corretiva'
-        };
-      }
+      const info = readItem(item);
+      if (info) return info;
     }
 
     const allAdminMachines = window.allAdminMachines || window.allMachinesData || getGlobalValue('allAdminMachines') || getGlobalValue('allMachinesData');
     const machineData = allAdminMachines && (allAdminMachines[machine] || allAdminMachines[String(machine)]);
-    if (machineData) {
-      const active =
-        machineData.isInMaintenance === true ||
-        machineData.maintenance === true ||
-        machineData.status === 'maintenance' ||
-        machineData.status === 'manutencao' ||
-        machineData.status === 'manutenção';
-
-      if (active) {
-        return {
-          isInMaintenance: true,
-          reason: machineData.reason || machineData.motivo || machineData.maintenanceReason || '',
-          type: 'Manutenção corretiva'
-        };
-      }
-    }
+    const info = readItem(machineData);
+    if (info) return info;
 
     return null;
   }
@@ -275,15 +322,19 @@
     if (!info || !info.isInMaintenance) return null;
 
     const range = getVisibleRangeTimes();
+    const startTime = info.startTime || range.start || '00:00';
+    const endTime = info.endTime || range.end || '23:59';
+
     return {
       id: `maintenance_${machine}_${date}`,
       machine,
       date,
-      startTime: range.start,
-      endTime: range.end,
-      message: `PARADA PARA MANUTENÇÃO CORRETIVA${info.reason ? '\nMotivo: ' + info.reason : ''}`,
+      startTime,
+      endTime,
+      message: `PARADA PARA MANUTENÇÃO CORRETIVA${info.reason ? '
+Motivo: ' + info.reason : ''}`,
       author: 'Sistema',
-      updatedAtText: 'Status atual da máquina',
+      updatedAtText: info.endTime ? 'Período registrado' : 'Em manutenção no momento',
       __maintenance: true
     };
   }
@@ -500,6 +551,33 @@
     });
   }
 
+  function updateToolbarVisibility() {
+    const toolbar = $('historyNotesToolbar');
+    if (!toolbar) return;
+    const hasMachine = !!getSelectedMachine();
+    toolbar.classList.toggle('is-disabled', !hasMachine);
+    toolbar.style.display = hasMachine ? 'flex' : 'none';
+  }
+
+  function destroyExistingHistoryChartBeforeReload() {
+    const canvas = $('historyChart');
+    if (!canvas || !window.Chart) return;
+
+    const existing = Chart.getChart(canvas);
+    if (existing) {
+      try { existing.destroy(); } catch (err) { console.warn('Não foi possível destruir gráfico anterior:', err); }
+    }
+
+    // Alguns arquivos antigos guardam a instância em variáveis globais.
+    // Limpar as mais comuns evita o erro "Canvas is already in use".
+    try {
+      if (window.historyChart && typeof window.historyChart.destroy === 'function') {
+        window.historyChart.destroy();
+      }
+      window.historyChart = null;
+    } catch (_) {}
+  }
+
   function getDbRef() {
     if (!window.firebase || !firebase.database) return null;
     try {
@@ -525,7 +603,13 @@
     STATE.currentMachine = getSelectedMachine();
     STATE.currentDate = getSelectedDate();
 
-    if (!db || !STATE.currentMachine || !STATE.currentDate) {
+    if (!STATE.currentMachine || !STATE.currentDate) {
+      STATE.notes = [];
+      updateChart();
+      return;
+    }
+
+    if (!db) {
       STATE.notes = loadLocalNotes();
       updateChart();
       return;
@@ -707,10 +791,15 @@
     const original = window.loadHistoryChart;
     if (typeof original === 'function' && !original.__notesPatched) {
       const patched = function () {
+        updateToolbarVisibility();
+        destroyExistingHistoryChartBeforeReload();
+
         const result = original.apply(this, arguments);
+
         setTimeout(() => {
           setupCanvasEvents();
           listenNotes();
+          updateToolbarVisibility();
           updateChart();
         }, 250);
         setTimeout(updateChart, 900);
@@ -756,6 +845,7 @@
 
     $('historyMachineSelect')?.addEventListener('change', () => {
       setTimeout(() => {
+        updateToolbarVisibility();
         listenNotes();
         updateChart();
       }, 100);
@@ -763,6 +853,7 @@
 
     $('historyDate')?.addEventListener('change', () => {
       setTimeout(() => {
+        updateToolbarVisibility();
         listenNotes();
         updateChart();
       }, 100);
@@ -782,6 +873,7 @@
     STATE.userEmail = emailEl ? emailEl.textContent : '';
 
     setTimeout(() => {
+      updateToolbarVisibility();
       listenNotes();
       updateChart();
     }, 600);
