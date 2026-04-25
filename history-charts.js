@@ -30,6 +30,26 @@
     return document.getElementById(id);
   }
 
+  function getSelectedMachineSafe() {
+    const select = $('historyMachineSelect');
+    if (!select) return '';
+
+    const value = String(select.value || '').trim();
+    const text = select.options && select.selectedIndex >= 0
+      ? String(select.options[select.selectedIndex].textContent || '').trim()
+      : '';
+
+    let machine = value || text;
+    machine = machine.replace(/^Máquina\s+/i, '').trim();
+
+    if (!machine || /selecione|selecionar|carregando/i.test(machine)) {
+      return '';
+    }
+
+    return machine;
+  }
+
+
   function pad2(v) {
     return String(v).padStart(2, '0');
   }
@@ -401,11 +421,11 @@
   async function loadHistoryChart() {
     if (isLoading) return;
 
-    const machine = $('historyMachineSelect')?.value || '';
+    const machine = getSelectedMachineSafe();
     const date = $('historyDate')?.value || '';
 
     if (!machine) {
-      safeAlert('erro', 'Selecione uma máquina');
+      safeAlert('erro', 'Selecione uma máquina válida');
       return;
     }
 
@@ -621,7 +641,14 @@
   };
   window.exportHistoryPdf = async function () {
     try {
-      const machine = $('historyMachineSelect')?.value || currentMachine || '-';
+      const selectedMachineForExport = getSelectedMachineSafe ? getSelectedMachineSafe() : ($('historyMachineSelect')?.value || currentMachine || '');
+
+      if (!selectedMachineForExport) {
+        alert('Selecione uma máquina antes de exportar.');
+        return;
+      }
+
+      const machine = selectedMachineForExport;
       const date = $('historyDate')?.value || currentDate || '-';
       const period = getActivePeriod();
 
@@ -675,8 +702,11 @@
         tempCanvas.height = canvas.height;
         const tempCtx = tempCanvas.getContext('2d');
 
+        // Fundo branco para remover qualquer transparência/overlay escuro.
         tempCtx.fillStyle = '#ffffff';
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+        // Apenas o canvas do gráfico. Não captura modal, backdrop ou overlay da página.
         tempCtx.drawImage(canvas, 0, 0);
 
         const imgData = tempCanvas.toDataURL('image/png', 1.0);
@@ -690,7 +720,7 @@
       pdf.setTextColor(15, 23, 42);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(12);
-      pdf.text('Registros do dia', margin, y);
+      pdf.text('Quantidade por horário', margin, y);
       y += 7;
 
       const headers = ['Horário', 'Moldes', 'Blanks', 'Neck Rings', 'Funís'];
@@ -754,11 +784,10 @@
 
       y += 10;
 
-      // Comentários da máquina no PDF
-      let pdfComments = [];
+      let pdfItems = [];
 
       if (window.WMoldesCommentsModal && typeof window.WMoldesCommentsModal.getByMachine === 'function') {
-        pdfComments = await window.WMoldesCommentsModal.getByMachine(machine);
+        pdfItems = await window.WMoldesCommentsModal.getByMachine(machine);
       }
 
       addPageIfNeeded(25);
@@ -766,10 +795,10 @@
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(12);
       pdf.setTextColor(15, 23, 42);
-      pdf.text('Comentários da máquina', margin, y);
+      pdf.text('Comentários e anotações da máquina', margin, y);
       y += 7;
 
-      if (!pdfComments.length) {
+      if (!pdfItems.length) {
         pdf.setFillColor(248, 250, 252);
         pdf.setDrawColor(226, 232, 240);
         pdf.roundedRect(margin, y, pageWidth - margin * 2, 16, 3, 3, 'FD');
@@ -777,15 +806,19 @@
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(9);
         pdf.setTextColor(100, 116, 139);
-        pdf.text('Nenhum comentário encontrado para esta máquina.', margin + 4, y + 9.5);
+        pdf.text('Nenhum comentário ou anotação encontrado para esta máquina.', margin + 4, y + 9.5);
         y += 20;
       } else {
-        pdfComments.slice(0, 30).forEach(comment => {
-          const dateText = comment.createdAtText || '';
-          const author = comment.author || 'Usuário';
-          const message = comment.text || '';
+        pdfItems.slice(0, 40).forEach(item => {
+          const timeText = item.startTime
+            ? `${item.startTime}${item.endTime ? ' - ' + item.endTime : ''}`
+            : (item.createdAtText || '-');
+
+          const author = item.author || 'Usuário';
+          const message = item.text || '';
+          const label = item.type === 'note' ? 'Anotação do gráfico' : 'Comentário';
           const messageLines = pdf.splitTextToSize(message, pageWidth - margin * 2 - 8);
-          const boxHeight = Math.max(22, 15 + messageLines.length * 4);
+          const boxHeight = Math.max(24, 19 + messageLines.length * 4);
 
           addPageIfNeeded(boxHeight + 5);
 
@@ -796,7 +829,7 @@
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(8.5);
           pdf.setTextColor(37, 99, 235);
-          pdf.text(dateText || '-', margin + 4, y + 6);
+          pdf.text(`${label} • ${timeText}`, margin + 4, y + 6);
 
           pdf.setFont('helvetica', 'normal');
           pdf.setTextColor(71, 85, 105);

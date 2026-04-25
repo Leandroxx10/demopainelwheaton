@@ -27,11 +27,12 @@
   function getMachine(){
     const s=$('historyMachineSelect');
     if(!s) return '';
-    const value=String(s.value||'').trim();
-    const text=s.options&&s.selectedIndex>=0?String(s.options[s.selectedIndex].textContent||'').toLowerCase():'';
-    if(!value) return '';
-    if(value.toLowerCase().includes('carregando')||text.includes('carregando')) return '';
-    return value;
+    let value=String(s.value||'').trim();
+    const text=s.options&&s.selectedIndex>=0?String(s.options[s.selectedIndex].textContent||'').trim():'';
+    let machine=value||text;
+    machine=machine.replace(/^Máquina\s+/i,'').trim();
+    if(!machine||/selecione|selecionar|carregando/i.test(machine)) return '';
+    return machine;
   }
 
   function getDate(){

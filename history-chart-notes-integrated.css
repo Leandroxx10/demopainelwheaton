@@ -242,3 +242,73 @@
   color: #0f172a;
   background: #ffffff;
 }
+
+
+/* Correção final do layout do topo do histórico */
+#history-section .history-controls,
+.history-controls {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 16px !important;
+  align-items: flex-end !important;
+}
+
+#history-section .history-controls > *,
+.history-controls > * {
+  flex: 0 0 auto;
+}
+
+#historyMachineSelect,
+#historyDate {
+  min-width: 220px;
+}
+
+#history-section .export-pdf-btn,
+#history-section [onclick*="exportHistoryPdf"],
+button[onclick*="exportHistoryPdf"] {
+  white-space: nowrap;
+}
+
+/* Select do modal de comentários */
+#historyCommentsMachineFilter option {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+
+/* Comentários/anotações: ajustes finais */
+.history-comment-card.is-note {
+  border-color: rgba(245, 158, 11, .35);
+  background: #fffbeb;
+}
+
+.history-comment-type {
+  margin-left: 8px;
+  border-radius: 999px;
+  background: #e0ecff;
+  color: #2563eb;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.history-comment-card.is-note .history-comment-type {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.history-comment-time {
+  display: inline-flex;
+  margin-bottom: 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+#historyCommentsMachineFilter option {
+  color: #0f172a;
+  background: #ffffff;
+}
