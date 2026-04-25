@@ -5,6 +5,60 @@
 (function () {
   'use strict';
 
+  /*
+   * Correção segura para Chart.js:
+   * O painel recria o gráfico no mesmo canvas em alguns fluxos.
+   * Antes de criar um novo Chart no mesmo canvas, destruímos a instância anterior.
+   */
+  function installChartCanvasReuseFix() {
+    if (!window.Chart || window.Chart.__wmoldesCanvasReuseFix) return;
+
+    const OriginalChart = window.Chart;
+
+    const WrappedChart = new Proxy(OriginalChart, {
+      construct(target, args) {
+        try {
+          const canvasArg = args[0];
+          let canvas = null;
+
+          if (typeof canvasArg === 'string') {
+            canvas = document.getElementById(canvasArg.replace('#', ''));
+          } else if (canvasArg && canvasArg.canvas) {
+            canvas = canvasArg.canvas;
+          } else if (canvasArg && canvasArg.nodeName === 'CANVAS') {
+            canvas = canvasArg;
+          }
+
+          if (canvas && target.getChart) {
+            const existing = target.getChart(canvas);
+            if (existing && typeof existing.destroy === 'function') {
+              existing.destroy();
+            }
+          }
+        } catch (err) {
+          console.warn('WMoldes: não foi possível destruir gráfico anterior:', err);
+        }
+
+        return Reflect.construct(target, args);
+      },
+      get(target, prop) {
+        return target[prop];
+      },
+      set(target, prop, value) {
+        target[prop] = value;
+        return true;
+      }
+    });
+
+    Object.setPrototypeOf(WrappedChart, OriginalChart);
+    WrappedChart.prototype = OriginalChart.prototype;
+    WrappedChart.__wmoldesCanvasReuseFix = true;
+    window.Chart = WrappedChart;
+  }
+
+  installChartCanvasReuseFix();
+
+
   const ROOT = 'historyChartNotesV2';
   const state = {
     notes: [],
@@ -736,6 +790,7 @@
     if (state.ready) return;
     state.ready = true;
 
+    installChartCanvasReuseFix();
     registerPlugin();
     bindUI();
     bindCanvas();
@@ -746,6 +801,7 @@
 
     // Fallback: não mexe no gráfico original, só reconecta o plugin e UI.
     setInterval(() => {
+      installChartCanvasReuseFix();
       registerPlugin();
       bindUI();
       bindCanvas();
