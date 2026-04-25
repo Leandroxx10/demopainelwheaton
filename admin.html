@@ -761,8 +761,8 @@
                     <!-- Gráfico -->
                     <div class="chart-container">
                         <!-- Anotações do gráfico: ficam integradas ao canvas, por máquina e data -->
-                        <div class="history-notes-toolbar" id="historyNotesToolbar">
-                            <button type="button" class="history-note-add-btn" id="historyNoteAddBtn">
+                        <div class="history-notes-toolbar is-disabled" id="historyNotesToolbar">
+                            <button type="button" class="history-note-add-btn" id="historyNoteAddBtn" onclick="window.WMoldesHistoryNotes && window.WMoldesHistoryNotes.open()">
                                 <i class="fas fa-sticky-note"></i>
                                 Nova anotação
                             </button>

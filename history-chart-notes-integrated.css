@@ -322,3 +322,5 @@ body.dark .history-note-icon-btn,
 .history-notes-toolbar.is-disabled {
   display: none !important;
 }
+
+#historyNotesToolbar.is-disabled { display: none !important; }

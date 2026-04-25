@@ -21,6 +21,27 @@
 
   const FIREBASE_ROOT = 'historyChartNotes';
 
+  window.WMoldesHistoryNotes = window.WMoldesHistoryNotes || {
+    open: function () {
+      const openWhenReady = () => {
+        if (typeof window.__wmoldesOpenHistoryNoteModal === 'function') {
+          window.__wmoldesOpenHistoryNoteModal();
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', openWhenReady, { once: true });
+      } else {
+        openWhenReady();
+      }
+    },
+    refresh: function () {
+      if (typeof window.__wmoldesRefreshHistoryNotes === 'function') {
+        window.__wmoldesRefreshHistoryNotes();
+      }
+    }
+  };
+
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -61,7 +82,10 @@
 
   function getSelectedMachine() {
     const el = $('historyMachineSelect');
-    return el && el.value ? String(el.value) : '';
+    if (!el || !el.value) return '';
+    const text = el.options && el.selectedIndex >= 0 ? (el.options[el.selectedIndex].textContent || '').toLowerCase() : '';
+    if (text.includes('carregando') || text.includes('selecione')) return '';
+    return String(el.value);
   }
 
   function timeToMinutes(time) {
@@ -554,7 +578,14 @@ Motivo: ' + info.reason : ''}`,
   function updateToolbarVisibility() {
     const toolbar = $('historyNotesToolbar');
     if (!toolbar) return;
-    const hasMachine = !!getSelectedMachine();
+
+    const machineSelect = $('historyMachineSelect');
+    const machine = getSelectedMachine();
+    const text = machineSelect && machineSelect.options && machineSelect.selectedIndex >= 0
+      ? (machineSelect.options[machineSelect.selectedIndex].textContent || '').toLowerCase()
+      : '';
+
+    const hasMachine = !!machine && machine !== 'Carregando...' && !text.includes('carregando') && !text.includes('selecione');
     toolbar.classList.toggle('is-disabled', !hasMachine);
     toolbar.style.display = hasMachine ? 'flex' : 'none';
   }
@@ -833,7 +864,14 @@ Motivo: ' + info.reason : ''}`,
   }
 
   function bindUi() {
-    $('historyNoteAddBtn')?.addEventListener('click', () => openModal(null));
+    const addBtn = $('historyNoteAddBtn');
+    if (addBtn && !addBtn.__historyNoteBound) {
+      addBtn.__historyNoteBound = true;
+      addBtn.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        openModal(null);
+      });
+    }
     $('historyNoteCloseBtn')?.addEventListener('click', closeModal);
     $('historyNoteCancelBtn')?.addEventListener('click', closeModal);
     $('historyNoteSaveBtn')?.addEventListener('click', saveNote);
@@ -882,6 +920,7 @@ Motivo: ' + info.reason : ''}`,
       patchHistoryLoad();
       setupCanvasEvents();
       const chart = getChartInstance();
+      updateToolbarVisibility();
       if (chart && chart !== STATE.chart) {
         STATE.chart = chart;
         updateChart();
@@ -892,10 +931,21 @@ Motivo: ' + info.reason : ''}`,
   document.addEventListener('DOMContentLoaded', init);
 
   window.WMoldesHistoryNotes = {
-    open: () => openModal(null),
+    open: () => {
+      if (typeof window.__wmoldesOpenHistoryNoteModal === 'function') {
+        window.__wmoldesOpenHistoryNoteModal();
+      } else {
+        openModal(null);
+      }
+    },
     refresh: () => {
-      listenNotes();
-      updateChart();
+      if (typeof window.__wmoldesRefreshHistoryNotes === 'function') {
+        window.__wmoldesRefreshHistoryNotes();
+      } else {
+        listenNotes();
+        updateToolbarVisibility();
+        updateChart();
+      }
     }
   };
 })();
