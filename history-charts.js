@@ -641,7 +641,9 @@
   };
   window.exportHistoryPdf = async function () {
     try {
-      const selectedMachineForExport = getSelectedMachineSafe ? getSelectedMachineSafe() : ($('historyMachineSelect')?.value || currentMachine || '');
+      const selectedMachineForExport = typeof getSelectedMachineSafe === 'function'
+        ? getSelectedMachineSafe()
+        : ($('historyMachineSelect')?.value || currentMachine || '');
 
       if (!selectedMachineForExport) {
         alert('Selecione uma máquina antes de exportar.');
@@ -665,17 +667,20 @@
       const margin = 12;
       let y = 14;
 
+      function resetPage() {
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      }
+
       function addPageIfNeeded(requiredHeight) {
         if (y + requiredHeight > pageHeight - 12) {
           pdf.addPage();
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+          resetPage();
           y = 14;
         }
       }
 
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      resetPage();
 
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(15, 23, 42);
@@ -702,16 +707,13 @@
         tempCanvas.height = canvas.height;
         const tempCtx = tempCanvas.getContext('2d');
 
-        // Fundo branco para remover qualquer transparência/overlay escuro.
         tempCtx.fillStyle = '#ffffff';
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-        // Apenas o canvas do gráfico. Não captura modal, backdrop ou overlay da página.
         tempCtx.drawImage(canvas, 0, 0);
 
         const imgData = tempCanvas.toDataURL('image/png', 1.0);
         const imgWidth = pageWidth - margin * 2;
-        const imgHeight = Math.min(95, (tempCanvas.height * imgWidth) / tempCanvas.width);
+        const imgHeight = Math.min(92, (tempCanvas.height * imgWidth) / tempCanvas.width);
 
         pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
         y += imgHeight + 10;
@@ -721,10 +723,11 @@
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(12);
       pdf.text('Quantidade por horário', margin, y);
-      y += 7;
+      y += 8;
 
       const headers = ['Horário', 'Moldes', 'Blanks', 'Neck Rings', 'Funís'];
-      const colWidths = [42, 30, 30, 38, 28];
+      const colX = [margin, margin + 42, margin + 72, margin + 102, margin + 142];
+      const tableRight = pageWidth - margin;
 
       const sourceRows = (displayedData && displayedData.length ? displayedData : currentData) || [];
       const rows = sortRecords(sourceRows).map(item => [
@@ -737,45 +740,46 @@
 
       function drawHeader() {
         pdf.setFillColor(37, 99, 235);
-        pdf.setTextColor(255, 255, 255);
+        pdf.rect(margin, y, tableRight - margin, 8, 'F');
+
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(8);
+        pdf.setTextColor(255, 255, 255);
 
-        let x = margin;
         headers.forEach((header, index) => {
-          pdf.rect(x, y, colWidths[index], 7, 'F');
-          pdf.text(header, x + 2, y + 4.8);
-          x += colWidths[index];
+          pdf.text(header, colX[index] + 2, y + 5.2);
         });
 
-        y += 7;
+        y += 8;
+        pdf.setDrawColor(226, 232, 240);
         pdf.setTextColor(15, 23, 42);
       }
 
       drawHeader();
+
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8);
 
       if (!rows.length) {
-        pdf.setFillColor(248, 250, 252);
-        pdf.rect(margin, y, colWidths.reduce((a, b) => a + b, 0), 8, 'F');
         pdf.setTextColor(100, 116, 139);
-        pdf.text('Nenhum registro encontrado.', margin + 2, y + 5.3);
+        pdf.text('Nenhum registro encontrado.', margin + 2, y + 5);
         y += 8;
       } else {
         rows.forEach((row, rowIndex) => {
-          addPageIfNeeded(8);
+          addPageIfNeeded(9);
 
-          let x = margin;
-          const bg = rowIndex % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          // Fundo branco/levemente cinza só na linha, sem blocos grandes.
+          if (rowIndex % 2 === 0) {
+            pdf.setFillColor(248, 250, 252);
+            pdf.rect(margin, y, tableRight - margin, 7, 'F');
+          }
 
-          pdf.setFillColor(bg[0], bg[1], bg[2]);
+          pdf.setDrawColor(226, 232, 240);
+          pdf.line(margin, y + 7, tableRight, y + 7);
 
-          headers.forEach((_, index) => {
-            pdf.rect(x, y, colWidths[index], 7, 'F');
-            pdf.setTextColor(15, 23, 42);
-            pdf.text((row[index] || '').slice(0, 28), x + 2, y + 4.8);
-            x += colWidths[index];
+          pdf.setTextColor(15, 23, 42);
+          row.forEach((text, index) => {
+            pdf.text(String(text || '').slice(0, 24), colX[index] + 2, y + 4.8);
           });
 
           y += 7;
@@ -785,7 +789,6 @@
       y += 10;
 
       let pdfItems = [];
-
       if (window.WMoldesCommentsModal && typeof window.WMoldesCommentsModal.getByMachine === 'function') {
         pdfItems = await window.WMoldesCommentsModal.getByMachine(machine);
       }

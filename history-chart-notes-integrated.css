@@ -312,3 +312,123 @@ button[onclick*="exportHistoryPdf"] {
   color: #0f172a;
   background: #ffffff;
 }
+
+
+/* Layout profissional do cabeçalho do Histórico */
+#history-section .history-controls,
+#history-section .history-filter-card,
+#history-section .history-filters,
+#history-section .history-toolbar,
+#history-section .history-header-controls {
+  display: grid !important;
+  grid-template-columns: minmax(210px, auto) minmax(220px, auto) 1fr minmax(230px, 320px) !important;
+  grid-template-areas:
+    "tutorial export spacer period"
+    "machine  date   comments period" !important;
+  gap: 18px 18px !important;
+  align-items: end !important;
+}
+
+/* Mapeamento por conteúdo/ids */
+#history-section #historyMachineSelect,
+#history-section #historyMachineSelect:where(select) {
+  min-width: 220px !important;
+}
+
+#history-section #historyDate {
+  min-width: 220px !important;
+}
+
+#history-section label[for="historyMachineSelect"],
+#history-section .machine-field,
+#history-section .history-machine-field {
+  grid-area: machine !important;
+}
+
+#history-section label[for="historyDate"],
+#history-section .date-field,
+#history-section .history-date-field {
+  grid-area: date !important;
+}
+
+#historyCommentsBtn {
+  grid-area: comments !important;
+  align-self: end !important;
+  justify-self: start !important;
+  margin-top: 0 !important;
+  min-width: 190px;
+}
+
+/* Botões superiores */
+#history-section button[onclick*="exportHistoryPdf"],
+#history-section .export-pdf-btn {
+  grid-area: export !important;
+  justify-self: start !important;
+  white-space: nowrap !important;
+}
+
+/* Card de período/turnos */
+#history-section .period-selector,
+#history-section .period-options,
+#history-section .period-buttons {
+  grid-area: period !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(92px, 1fr)) !important;
+  gap: 10px !important;
+  align-self: stretch !important;
+  max-width: 320px !important;
+}
+
+/* Evita botões de turno altos e desalinhados */
+#history-section .period-btn,
+#history-section .period-option {
+  min-height: 58px !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+}
+
+/* Remove qualquer texto/overlay estranho que tenha vindo de testes antigos */
+#history-section .debug-text,
+#history-section .test-label,
+#history-section [data-debug],
+#history-section [data-test] {
+  display: none !important;
+}
+
+@media (max-width: 1100px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-areas:
+      "tutorial export"
+      "machine date"
+      "period period"
+      "comments comments" !important;
+  }
+
+  #history-section .period-selector,
+  #history-section .period-options,
+  #history-section .period-buttons {
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 720px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "tutorial"
+      "export"
+      "machine"
+      "date"
+      "period"
+      "comments" !important;
+  }
+}
