@@ -638,13 +638,18 @@
       const margin = 12;
       let y = 14;
 
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+
       pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(15, 23, 42);
       pdf.setFontSize(16);
       pdf.text('Histórico de Produção', margin, y);
 
       y += 8;
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
+      pdf.setTextColor(51, 65, 85);
       pdf.text(`Máquina: ${machine}`, margin, y);
       pdf.text(`Data: ${date}`, margin + 65, y);
       pdf.text(`Período: ${period}`, margin + 125, y);
@@ -655,29 +660,42 @@
       y += 8;
 
       const canvas = $('historyChart');
-
       if (canvas) {
-        const imgData = canvas.toDataURL('image/png', 1.0);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.fillStyle = '#ffffff';
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(canvas, 0, 0);
+
+        const imgData = tempCanvas.toDataURL('image/png', 1.0);
         const imgWidth = pageWidth - margin * 2;
-        const imgHeight = Math.min(95, (canvas.height * imgWidth) / canvas.width);
+        const imgHeight = Math.min(95, (tempCanvas.height * imgWidth) / tempCanvas.width);
 
         pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
         y += imgHeight + 10;
       }
 
+      pdf.setTextColor(15, 23, 42);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(12);
       pdf.text('Registros do dia', margin, y);
       y += 7;
 
-      const rows = Array.from(document.querySelectorAll('#historyTableBody tr')).map(tr =>
-        Array.from(tr.children).map(td => String(td.textContent || '').trim())
-      );
-
       const headers = ['Horário', 'Moldes', 'Blanks', 'Neck Rings', 'Funís'];
       const colWidths = [42, 30, 30, 38, 28];
 
-      function drawTableHeader() {
+      const sourceRows = (displayedData && displayedData.length ? displayedData : currentData) || [];
+      const rows = sortRecords(sourceRows).map(item => [
+        item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora,
+        String(item.molde ?? 0),
+        String(item.blank ?? 0),
+        String(item.neck_ring ?? 0),
+        String(item.funil ?? 0)
+      ]);
+
+      function drawHeader() {
         pdf.setFillColor(37, 99, 235);
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'bold');
@@ -694,31 +712,40 @@
         pdf.setTextColor(15, 23, 42);
       }
 
-      drawTableHeader();
-
+      drawHeader();
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8);
 
-      rows.forEach((row, idx) => {
-        if (y > pageHeight - 18) {
-          pdf.addPage();
-          y = 14;
-          drawTableHeader();
-        }
+      if (!rows.length) {
+        pdf.setFillColor(248, 250, 252);
+        pdf.rect(margin, y, colWidths.reduce((a, b) => a + b, 0), 8, 'F');
+        pdf.setTextColor(100, 116, 139);
+        pdf.text('Nenhum registro encontrado.', margin + 2, y + 5.3);
+        y += 8;
+      } else {
+        rows.forEach((row, idx) => {
+          if (y > pageHeight - 18) {
+            pdf.addPage();
+            pdf.setFillColor(255, 255, 255);
+            pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+            y = 14;
+            drawHeader();
+          }
 
-        let x = margin;
-        const shade = idx % 2 === 0 ? 248 : 255;
-        pdf.setFillColor(shade, shade === 248 ? 250 : 255, shade === 248 ? 252 : 255);
+          let x = margin;
+          const bg = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          pdf.setFillColor(bg[0], bg[1], bg[2]);
 
-        headers.forEach((_, i) => {
-          pdf.rect(x, y, colWidths[i], 7, 'F');
-          const text = (row[i] || '').slice(0, 28);
-          pdf.text(text, x + 2, y + 4.8);
-          x += colWidths[i];
+          headers.forEach((_, i) => {
+            pdf.rect(x, y, colWidths[i], 7, 'F');
+            pdf.setTextColor(15, 23, 42);
+            pdf.text((row[i] || '').slice(0, 28), x + 2, y + 4.8);
+            x += colWidths[i];
+          });
+
+          y += 7;
         });
-
-        y += 7;
-      });
+      }
 
       const filename = `historico_${String(machine).replace(/\s+/g, '_')}_${String(date).replaceAll('/', '-')}.pdf`;
       pdf.save(filename);

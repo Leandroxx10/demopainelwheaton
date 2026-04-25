@@ -225,3 +225,9 @@
   .history-comment-card-top,
   .history-comment-footer { flex-direction: column; }
 }
+
+/* Correção visual do filtro de comentários */
+#historyCommentsMachineFilter option {
+  color: #0f172a;
+  background: #ffffff;
+}

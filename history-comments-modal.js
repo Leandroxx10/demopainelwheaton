@@ -20,6 +20,70 @@
     return String(value);
   }
 
+
+  function buildDefaultMachineList() {
+    // Lista oficial do gráfico/histórico.
+    return [
+      'A1','A2','A3','A4','A5','A6',
+      'B1','B2','B3','B4','B5','B6','B7','B8',
+      'C1','C2','C3','C4','C5','C6','C7','C8',
+      '10','11','12','13','14','15'
+    ];
+  }
+
+  function getMachinesFromPanel() {
+    const official = buildDefaultMachineList();
+    const machines = new Set(official);
+
+    // Também aceita valores reais do select do gráfico, caso o Firebase acrescente alguma máquina no futuro.
+    const historySelect = $('historyMachineSelect');
+    if (historySelect) {
+      Array.from(historySelect.options || []).forEach(opt => {
+        const value = String(opt.value || '').trim();
+        const text = String(opt.textContent || '').replace(/^Máquina\s+/i, '').trim();
+        const machine = value || text;
+
+        if (machine && !/carregando|selecione/i.test(machine)) {
+          machines.add(machine);
+        }
+      });
+    }
+
+    return Array.from(machines).sort((a, b) => {
+      const officialIndexA = official.indexOf(String(a));
+      const officialIndexB = official.indexOf(String(b));
+
+      if (officialIndexA !== -1 && officialIndexB !== -1) {
+        return officialIndexA - officialIndexB;
+      }
+
+      if (officialIndexA !== -1) return -1;
+      if (officialIndexB !== -1) return 1;
+
+      return String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
+    });
+  }
+
+  function populateMachineFilter() {
+    const select = $('historyCommentsMachineFilter');
+    if (!select) return;
+
+    const selected = select.value || 'all';
+    const machines = getMachinesFromPanel();
+
+    select.innerHTML = `
+      <option value="all">Todas as máquinas</option>
+      <option value="current">Máquina selecionada</option>
+      <option value="" disabled>──────────</option>
+      ${machines.map(m => `<option value="${esc(m)}">Máquina ${esc(m)}</option>`).join('')}
+    `;
+
+    if (Array.from(select.options).some(o => o.value === selected)) {
+      select.value = selected;
+    }
+  }
+
+
   function ensureUI() {
     const historyControls = document.querySelector('#history-section .history-controls') || document.querySelector('#history-section .history-header') || document.querySelector('#history-section');
 
@@ -81,6 +145,8 @@
       $('historyCommentsSearch').addEventListener('input', applyFilters);
       $('historyCommentsReload').addEventListener('click', loadComments);
     }
+
+    populateMachineFilter();
   }
 
   function openModal() {
@@ -166,6 +232,7 @@
 
     state.filtered = state.comments.filter(c => {
       if (filter === 'current' && currentMachine && String(c.machine) !== String(currentMachine)) return false;
+      if (filter !== 'all' && filter !== 'current' && String(c.machine) !== String(filter)) return false;
 
       if (q) {
         const hay = `${c.machine} ${c.author} ${c.text} ${c.createdAtText}`.toLowerCase();
