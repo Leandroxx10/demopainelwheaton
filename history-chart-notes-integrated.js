@@ -1,923 +1,288 @@
-/*
- * WMoldes - Anotações profissionais integradas ao gráfico
- * Versão robusta:
- * - Cria toolbar/modal se o HTML não tiver.
- * - Botão aparece quando houver máquina selecionada.
- * - Não altera loadHistoryChart().
- * - Desenha anotações e manutenção dentro do canvas por plugin Chart.js.
- */
+// WMoldes - Anotações overlay, sem plugin e sem recursão.
 (function () {
   'use strict';
 
-  const ROOT = 'historyChartNotesV3';
-  const state = {
-    notes: [],
-    chart: null,
-    subscribedPath: '',
-    tooltip: null,
-    ready: false
-  };
+  const ROOT = 'historyChartNotesStable';
+  const state = { notes: [], subscribed: '', tooltip: null };
 
-  function el(id) { return document.getElementById(id); }
-  function qs(sel) { return document.querySelector(sel); }
-  function pad(n) { return String(n).padStart(2, '0'); }
-  function todayISO() {
-    const d = new Date();
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
-  function nowText() {
-    const d = new Date();
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-  function esc(v) {
-    return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));
-  }
-  function safeKey(v) {
-    return String(v || 'sem-maquina').replace(/[.#$/\[\]]/g, '_');
-  }
+  function $(id){ return document.getElementById(id); }
+  function qs(s){ return document.querySelector(s); }
+  function pad(v){ return String(v).padStart(2,'0'); }
+  function todayISO(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+  function esc(v){ return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
+  function safeKey(v){ return String(v||'sem-maquina').replace(/[.#$/\[\]]/g,'_'); }
+  function nowText(){ const d=new Date(); return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
-  function normalizeDate(v) {
-    if (!v) return todayISO();
-    const s = String(v).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    const br = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-    const iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  function normalizeDate(v){
+    if(!v) return todayISO();
+    const s=String(v).trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const br=s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if(br) return `${br[3]}-${br[2]}-${br[1]}`;
+    const iso=s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
     return todayISO();
   }
 
-  function getMachine() {
-    const s = el('historyMachineSelect');
-    if (!s) return '';
-
-    let value = String(s.value || '').trim();
-    const text = s.options && s.selectedIndex >= 0
-      ? String(s.options[s.selectedIndex].textContent || '').trim()
-      : '';
-
-    const lower = `${value} ${text}`.toLowerCase();
-
-    if (lower.includes('carregando')) return '';
-    if (lower.includes('selecione') && !value) return '';
-
-    // Alguns selects customizados deixam value vazio, mas o texto tem "Máquina X".
-    if (!value && text && !text.toLowerCase().includes('carregando') && !text.toLowerCase().includes('selecione')) {
-      value = text;
-    }
-
+  function getMachine(){
+    const s=$('historyMachineSelect');
+    if(!s) return '';
+    const value=String(s.value||'').trim();
+    const text=s.options&&s.selectedIndex>=0?String(s.options[s.selectedIndex].textContent||'').toLowerCase():'';
+    if(!value) return '';
+    if(value.toLowerCase().includes('carregando')||text.includes('carregando')) return '';
     return value;
   }
 
-  function getDate() {
-    const s = el('historyDate');
-    if (!s) return todayISO();
-    const optText = s.options && s.selectedIndex >= 0 ? s.options[s.selectedIndex].textContent : '';
-    return normalizeDate(s.value || optText);
+  function getDate(){
+    const s=$('historyDate');
+    if(!s) return todayISO();
+    const t=s.options&&s.selectedIndex>=0?s.options[s.selectedIndex].textContent:'';
+    return normalizeDate(s.value||t);
   }
 
-  function timeToMin(t) {
-    const m = String(t || '').match(/(\d{1,2}):(\d{2})/);
-    if (!m) return 0;
-    return Math.max(0, Math.min(1439, Number(m[1]) * 60 + Number(m[2])));
+  function timeToMin(t){ const m=String(t||'').match(/(\d{1,2}):(\d{2})/); return m?Number(m[1])*60+Number(m[2]):0; }
+  function minToHour(m){ return m/60; }
+  function extractTime(v){
+    if(!v) return '';
+    if(typeof v==='number'){ const d=new Date(v); return isNaN(d)?'':`${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+    const s=String(v); const hh=s.match(/(\d{1,2}):(\d{2})/); if(hh) return `${pad(hh[1])}:${hh[2]}`;
+    const d=new Date(s); return isNaN(d)?'':`${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
-  function minToHour(m) { return m / 60; }
 
-  function extractTime(v) {
-    if (!v) return '';
-    if (typeof v === 'number') {
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  function getChart(){
+    const c=$('historyChart');
+    if(!c||!window.Chart) return null;
+    return Chart.getChart(c)||window.historyChart||null;
+  }
+
+  function labelHour(label){ const m=String(label??'').match(/(\d{1,2}):(\d{2})/); return m?Number(m[1])+Number(m[2])/60:null; }
+
+  function pixelForHour(chart,hour){
+    if(!chart||!chart.scales) return NaN;
+    const xs=chart.scales.x||Object.values(chart.scales).find(s=>s.axis==='x');
+    if(!xs) return NaN;
+    let px=xs.getPixelForValue(hour);
+    if(Number.isFinite(px)&&px>=xs.left-80&&px<=xs.right+80) return px;
+    const labels=chart.data?.labels||[];
+    let best=0,diff=Infinity;
+    labels.forEach((l,i)=>{ const h=labelHour(l); if(h==null)return; const d=Math.abs(h-hour); if(d<diff){diff=d;best=i;}});
+    return xs.getPixelForValue(best);
+  }
+
+  function ensureUI(){
+    const container=qs('#history-section .chart-container')||qs('.chart-container');
+    if(container && !$('historyNotesToolbar')){
+      const tb=document.createElement('div');
+      tb.id='historyNotesToolbar';
+      tb.className='history-notes-toolbar is-disabled';
+      tb.style.display='none';
+      tb.innerHTML='<button type="button" class="history-note-add-btn" id="historyNoteAddBtn"><i class="fas fa-sticky-note"></i> Nova anotação</button><span class="history-notes-helper">Anotações e manutenção aparecem no topo do gráfico.</span>';
+      container.insertBefore(tb,container.firstChild);
     }
-    const s = String(v);
-    const hh = s.match(/(\d{1,2}):(\d{2})/);
-    if (hh) return `${pad(hh[1])}:${hh[2]}`;
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-
-  function selectedRange() {
-    const active = qs('.period-btn.active, .period-option.active, [data-period].active');
-    const p = active ? String(active.getAttribute('data-period') || '').toLowerCase() : '24h';
-
-    if (p === 'custom') {
-      return {
-        start: el('customStartTime')?.value || '00:00',
-        end: el('customEndTime')?.value || '23:59'
-      };
+    if(container && !$('historyNotesLayer')){
+      const layer=document.createElement('div');
+      layer.id='historyNotesLayer';
+      layer.className='history-notes-layer';
+      container.appendChild(layer);
     }
-
-    if (p.includes('turno1') || p.includes('shift1')) return { start: '06:00', end: '14:00' };
-    if (p.includes('turno2') || p.includes('shift2')) return { start: '14:00', end: '22:00' };
-    if (p.includes('turno3') || p.includes('shift3')) return { start: '22:00', end: '06:00' };
-
-    return { start: '00:00', end: '23:59' };
-  }
-
-  function ensureUI() {
-    const chartContainer = qs('#history-section .chart-container') || qs('.chart-container');
-    if (chartContainer && !el('historyNotesToolbar')) {
-      const toolbar = document.createElement('div');
-      toolbar.className = 'history-notes-toolbar is-disabled';
-      toolbar.id = 'historyNotesToolbar';
-      toolbar.style.display = 'none';
-      toolbar.innerHTML = `
-        <button type="button" class="history-note-add-btn" id="historyNoteAddBtn">
-          <i class="fas fa-sticky-note"></i>
-          Nova anotação
-        </button>
-        <span class="history-notes-helper">Anotações e manutenção aparecem no topo do gráfico.</span>
-      `;
-      chartContainer.insertBefore(toolbar, chartContainer.firstChild);
-    }
-
-    if (!el('historyNoteModalBackdrop')) {
-      const modal = document.createElement('div');
-      modal.className = 'history-note-modal-backdrop';
-      modal.id = 'historyNoteModalBackdrop';
-      modal.setAttribute('aria-hidden', 'true');
-      modal.innerHTML = `
-        <div class="history-note-modal" role="dialog" aria-modal="true" aria-labelledby="historyNoteModalTitle">
+    if(!$('historyNoteModalBackdrop')){
+      const modal=document.createElement('div');
+      modal.id='historyNoteModalBackdrop';
+      modal.className='history-note-modal-backdrop';
+      modal.innerHTML=`
+        <div class="history-note-modal">
           <div class="history-note-modal-header">
-            <div>
-              <h3 id="historyNoteModalTitle">Anotação do gráfico</h3>
-              <p>A anotação fica no topo do gráfico, alinhada pelo horário escolhido.</p>
-            </div>
-            <button type="button" class="history-note-icon-btn" id="historyNoteCloseBtn" aria-label="Fechar">
-              <i class="fas fa-times"></i>
-            </button>
+            <div><h3>Anotação do gráfico</h3><p>Será exibida no topo do gráfico, alinhada pelo horário.</p></div>
+            <button type="button" class="history-note-icon-btn" id="historyNoteCloseBtn"><i class="fas fa-times"></i></button>
           </div>
-
           <input type="hidden" id="historyNoteId">
-
           <div class="history-note-form-grid">
-            <div class="history-note-field">
-              <label for="historyNoteDate">Data</label>
-              <input type="date" id="historyNoteDate">
-            </div>
-            <div class="history-note-field">
-              <label for="historyNoteStart">Horário inicial</label>
-              <input type="time" id="historyNoteStart">
-            </div>
-            <div class="history-note-field">
-              <label for="historyNoteEnd">Horário final</label>
-              <input type="time" id="historyNoteEnd">
-            </div>
+            <div class="history-note-field"><label>Data</label><input type="date" id="historyNoteDate"></div>
+            <div class="history-note-field"><label>Horário inicial</label><input type="time" id="historyNoteStart"></div>
+            <div class="history-note-field"><label>Horário final</label><input type="time" id="historyNoteEnd"></div>
           </div>
-
-          <div class="history-note-field">
-            <label for="historyNoteMessage">Mensagem</label>
-            <textarea id="historyNoteMessage" rows="4" placeholder="Digite a mensagem da anotação..."></textarea>
-          </div>
-
+          <div class="history-note-field"><label>Mensagem</label><textarea id="historyNoteMessage" rows="4" placeholder="Digite a mensagem..."></textarea></div>
           <div class="history-note-modal-actions">
-            <button type="button" class="history-note-danger-btn" id="historyNoteDeleteBtn">
-              <i class="fas fa-trash"></i>
-              Remover
-            </button>
+            <button type="button" class="history-note-danger-btn" id="historyNoteDeleteBtn"><i class="fas fa-trash"></i> Remover</button>
             <div class="history-note-modal-actions-right">
               <button type="button" class="history-note-secondary-btn" id="historyNoteCancelBtn">Cancelar</button>
-              <button type="button" class="history-note-primary-btn" id="historyNoteSaveBtn">
-                <i class="fas fa-save"></i>
-                Salvar
-              </button>
+              <button type="button" class="history-note-primary-btn" id="historyNoteSaveBtn"><i class="fas fa-save"></i> Salvar</button>
             </div>
           </div>
-        </div>
-      `;
+        </div>`;
       document.body.appendChild(modal);
     }
   }
 
-  function getChart() {
-    const canvas = el('historyChart');
-    if (!canvas || !window.Chart) return null;
-    return Chart.getChart(canvas) || window.historyChart || state.chart || null;
-  }
-
-  function xScale(chart) {
-    if (!chart || !chart.scales) return null;
-    return chart.scales.x || Object.values(chart.scales).find(s => s.axis === 'x');
-  }
-
-  function labelHour(label) {
-    const m = String(label ?? '').match(/(\d{1,2}):(\d{2})/);
-    return m ? Number(m[1]) + Number(m[2]) / 60 : null;
-  }
-
-  function pixelForHour(chart, hour) {
-    const xs = xScale(chart);
-    if (!xs) return NaN;
-
-    let px = xs.getPixelForValue(hour);
-    if (Number.isFinite(px) && px >= xs.left - 80 && px <= xs.right + 80) return px;
-
-    const labels = chart.data?.labels || [];
-    if (labels.length) {
-      let best = 0, diff = Infinity;
-      labels.forEach((lab, i) => {
-        const h = labelHour(lab);
-        if (h == null) return;
-        const d = Math.abs(h - hour);
-        if (d < diff) {
-          diff = d;
-          best = i;
-        }
-      });
-      px = xs.getPixelForValue(best);
-    }
-
-    return px;
-  }
-
-  function hasFirebase() {
-    return !!(window.firebase && firebase.database);
-  }
-
-  function dbPath() {
-    return `${ROOT}/${safeKey(getMachine())}/${getDate()}`;
-  }
-
-  function localKey() {
-    return `wmoldes_notes_${safeKey(getMachine())}_${getDate()}`;
-  }
-
-  function loadLocal() {
-    try { return JSON.parse(localStorage.getItem(localKey()) || '[]'); } catch { return []; }
-  }
-
-  function saveLocal(rows) {
-    localStorage.setItem(localKey(), JSON.stringify(rows));
-  }
-
-  function updateButton() {
+  function updateButton(){
     ensureUI();
-
-    const toolbar = el('historyNotesToolbar');
-    if (!toolbar) return;
-
-    const ok = !!getMachine();
-
-    toolbar.style.display = ok ? 'flex' : 'none';
-    toolbar.classList.toggle('is-disabled', !ok);
+    const tb=$('historyNotesToolbar');
+    if(!tb) return;
+    const ok=!!getMachine();
+    tb.style.display=ok?'flex':'none';
+    tb.classList.toggle('is-disabled',!ok);
   }
 
-  function subscribeNotes() {
-    updateButton();
-
-    const machine = getMachine();
-
-    if (!machine) {
-      state.notes = [];
-      redraw();
-      return;
-    }
-
-    if (!hasFirebase()) {
-      state.notes = loadLocal();
-      redraw();
-      return;
-    }
-
-    const path = dbPath();
-
-    if (state.subscribedPath && state.subscribedPath !== path) {
-      try { firebase.database().ref(state.subscribedPath).off(); } catch {}
-    }
-
-    state.subscribedPath = path;
-
-    try {
-      firebase.database().ref(path).off();
-      firebase.database().ref(path).on('value', snap => {
-        const val = snap.val() || {};
-        state.notes = Object.keys(val).map(id => ({
-          id,
-          machine,
-          date: getDate(),
-          ...val[id]
-        }));
-        redraw();
-      });
-    } catch (err) {
-      console.warn('Falha ao carregar anotações:', err);
-    }
+  function selectedRange(){
+    const active=qs('.period-btn.active,.period-option.active,[data-period].active');
+    const p=active?String(active.dataset.period||''):'24h';
+    if(p==='custom') return {start:$('customStartTime')?.value||'00:00',end:$('customEndTime')?.value||'23:59'};
+    if(p==='shift1'||p==='turno1') return {start:'06:00',end:'14:00'};
+    if(p==='shift2'||p==='turno2') return {start:'14:00',end:'22:00'};
+    if(p==='shift3'||p==='turno3') return {start:'22:00',end:'06:00'};
+    return {start:'00:00',end:'23:59'};
   }
 
-  function fields(obj, names) {
-    if (!obj) return undefined;
-    for (const n of names) {
-      if (obj[n] !== undefined && obj[n] !== null && obj[n] !== '') return obj[n];
+  function fields(o,names){ if(!o)return undefined; for(const n of names){ if(o[n]!==undefined&&o[n]!==null&&o[n]!=='') return o[n]; } }
+  function maintenanceRowsFrom(src,machine){
+    if(!src)return[];
+    const direct=src[machine]||src[String(machine)];
+    if(Array.isArray(direct))return direct;
+    if(direct&&typeof direct==='object'){
+      const record=fields(direct,['status','isInMaintenance','emManutencao','maintenance','manutencao','startTime','horaInicio','endTime','horaFim']);
+      return record?[direct]:Object.values(direct);
     }
-    return undefined;
-  }
-
-  function maintenanceRowsFrom(source, machine) {
-    if (!source) return [];
-
-    const direct = source[machine] || source[String(machine)];
-
-    if (Array.isArray(direct)) return direct;
-
-    if (direct && typeof direct === 'object') {
-      const looksRecord = fields(direct, [
-        'status','isInMaintenance','emManutencao','maintenance','manutencao',
-        'startTime','horaInicio','startedAt','endTime','horaFim','endedAt','createdAt'
-      ]);
-      return looksRecord ? [direct] : Object.values(direct);
-    }
-
-    if (Array.isArray(source)) {
-      return source.filter(r => String(fields(r, ['machine','maquina','machineId','nomeMaquina']) || '') === String(machine));
-    }
-
+    if(Array.isArray(src)) return src.filter(r=>String(fields(r,['machine','maquina','machineId','nomeMaquina'])||'')===String(machine));
     return [];
   }
-
-  function isMaintenance(row) {
-    const status = String(fields(row, ['status','state','estado','tipoStatus']) || '').toLowerCase();
-    const type = String(fields(row, ['type','tipo','eventType','evento']) || '').toLowerCase();
-    const msg = String(fields(row, ['message','mensagem','reason','motivo','observacao','observação']) || '').toLowerCase();
-
-    return row?.isInMaintenance === true ||
-      row?.emManutencao === true ||
-      row?.maintenance === true ||
-      row?.manutencao === true ||
-      status.includes('manut') ||
-      status.includes('maintenance') ||
-      status.includes('parada') ||
-      type.includes('manut') ||
-      type.includes('maintenance') ||
-      msg.includes('manutenção') ||
-      msg.includes('manutencao') ||
-      msg.includes('corretiva');
+  function isMaint(r){
+    const status=String(fields(r,['status','state','estado','tipoStatus'])||'').toLowerCase();
+    const type=String(fields(r,['type','tipo','eventType','evento'])||'').toLowerCase();
+    const msg=String(fields(r,['message','mensagem','reason','motivo','observacao','observação'])||'').toLowerCase();
+    return r?.isInMaintenance===true||r?.emManutencao===true||r?.maintenance===true||r?.manutencao===true||status.includes('manut')||status.includes('parada')||type.includes('manut')||msg.includes('manut')||msg.includes('corretiva');
   }
-
-  function maintenanceIntervals() {
-    const machine = getMachine();
-    if (!machine) return [];
-
-    const sources = [
-      window.machineMaintenance,
-      window.maintenanceData,
-      window.allMachineMaintenance,
-      window.manutencoes,
-      window.maintenanceRecords,
-      window.maintenanceHistory,
-      window.historicoManutencao,
-      window.allAdminMachines,
-      window.allMachinesData
-    ].filter(Boolean);
-
-    const rows = [];
-    sources.forEach(src => maintenanceRowsFrom(src, machine).forEach(r => rows.push(r)));
-
-    const intervals = rows.filter(isMaintenance).map((r, i) => {
-      const start = extractTime(fields(r, [
-        'startTime','horaInicio','inicio','maintenanceStart','startedAt',
-        'inicioManutencao','start','createdAt','timestamp','dataInicio'
-      ]));
-      const end = extractTime(fields(r, [
-        'endTime','horaFim','fim','maintenanceEnd','endedAt',
-        'fimManutencao','end','returnedAt','retorno','returnTime','dataFim'
-      ]));
-      const range = selectedRange();
-
-      return {
-        id: `maintenance_${i}_${start}_${end}`,
-        machine,
-        date: getDate(),
-        startTime: start || range.start,
-        endTime: end || range.end,
-        message: `PARADA PARA MANUTENÇÃO CORRETIVA${fields(r, ['reason','motivo','message','mensagem','observacao','observação']) ? '\nMotivo: ' + fields(r, ['reason','motivo','message','mensagem','observacao','observação']) : ''}`,
-        author: 'Sistema',
-        updatedAtText: end ? 'Período registrado' : 'Em manutenção no momento',
-        maintenance: true
-      };
-    });
-
-    const seen = new Set();
-
-    return intervals.filter(i => {
-      const k = `${i.startTime}|${i.endTime}|${i.message}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+  function maintenanceIntervals(){
+    const machine=getMachine(); if(!machine)return[];
+    const sources=[window.machineMaintenance,window.maintenanceData,window.allMachineMaintenance,window.manutencoes,window.maintenanceRecords,window.maintenanceHistory,window.historicoManutencao,window.allAdminMachines,window.allMachinesData].filter(Boolean);
+    const rows=[]; sources.forEach(s=>maintenanceRowsFrom(s,machine).forEach(r=>rows.push(r)));
+    const range=selectedRange();
+    return rows.filter(isMaint).map((r,i)=>{
+      const start=extractTime(fields(r,['startTime','horaInicio','inicio','maintenanceStart','startedAt','inicioManutencao','start','createdAt','timestamp','dataInicio']))||range.start;
+      const end=extractTime(fields(r,['endTime','horaFim','fim','maintenanceEnd','endedAt','fimManutencao','end','returnedAt','retorno','returnTime','dataFim']))||range.end;
+      const reason=fields(r,['reason','motivo','message','mensagem','observacao','observação']);
+      return {id:'maint_'+i,date:getDate(),startTime:start,endTime:end,message:`PARADA PARA MANUTENÇÃO CORRETIVA${reason?'\nMotivo: '+reason:''}`,author:'Sistema',updatedAtText:end?'Período registrado':'Em manutenção',maintenance:true};
     });
   }
 
-  function visibleNotes() {
-    const machine = getMachine();
-    if (!machine) return [];
-
-    const date = getDate();
-    const range = selectedRange();
-    const rs = timeToMin(range.start);
-    const re = timeToMin(range.end);
-
-    const saved = state.notes.filter(n => {
-      const s = timeToMin(n.startTime);
-      const e = timeToMin(n.endTime || n.startTime);
-      return normalizeDate(n.date || date) === date && e >= rs && s <= re;
+  function visibleNotes(){
+    const machine=getMachine(); if(!machine)return[];
+    const date=getDate(); const range=selectedRange(); const rs=timeToMin(range.start), re=timeToMin(range.end);
+    const saved=state.notes.filter(n=>{
+      const s=timeToMin(n.startTime), e=timeToMin(n.endTime||n.startTime);
+      return normalizeDate(n.date||date)===date && e>=rs && s<=re;
     });
-
-    return [...maintenanceIntervals(), ...saved];
+    return [...maintenanceIntervals(),...saved];
   }
 
-  function roundRect(ctx, x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  function forcePadding(chart) {
-    if (!chart || !chart.options) return;
-    chart.options.layout = chart.options.layout || {};
-    chart.options.layout.padding = chart.options.layout.padding || {};
-    chart.options.layout.padding.top = Math.max(Number(chart.options.layout.padding.top || 0), 72);
-  }
-
-  const notesPlugin = {
-    id: 'wmoldesNotesPluginComplete',
-    beforeInit(chart) {
-      forcePadding(chart);
-    },
-    beforeUpdate(chart) {
-      forcePadding(chart);
-    },
-    afterDatasetsDraw(chart) {
-      state.chart = chart;
-
-      const xs = xScale(chart);
-      if (!xs || !chart.chartArea) return;
-
-      const ctx = chart.ctx;
-      const top = Math.max(8, chart.chartArea.top - 62);
-      const notes = visibleNotes();
-      const occupied = [];
-
-      notes.forEach(note => {
-        const startH = minToHour(timeToMin(note.startTime));
-        const endH = minToHour(timeToMin(note.endTime || note.startTime));
-        const startX = pixelForHour(chart, startH);
-        const endX = pixelForHour(chart, endH);
-        const midX = pixelForHour(chart, (startH + endH) / 2);
-
-        if (!Number.isFinite(midX)) return;
-
-        if (note.maintenance) {
-          let left = Math.max(chart.chartArea.left + 4, Math.min(startX, endX));
-          let right = Math.min(chart.chartArea.right - 4, Math.max(startX, endX));
-
-          if (!Number.isFinite(left) || !Number.isFinite(right) || right - left < 12) {
-            left = Math.max(chart.chartArea.left + 4, midX - 40);
-            right = Math.min(chart.chartArea.right - 4, midX + 40);
-          }
-
-          const w = Math.max(18, right - left);
-          const y = top;
-          const h = 20;
-
-          note.__hit = { x: left, y, w, h };
-
-          ctx.save();
-
-          ctx.fillStyle = 'rgba(100,116,139,.22)';
-          roundRect(ctx, left, y, w, h, 9);
-          ctx.fill();
-
-          ctx.strokeStyle = '#64748b';
-          ctx.lineWidth = 1.3;
-          roundRect(ctx, left, y, w, h, 9);
-          ctx.stroke();
-
-          ctx.fillStyle = '#334155';
-          ctx.font = '700 11px system-ui,-apple-system,Segoe UI,sans-serif';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(w > 135 ? 'Manutenção corretiva' : 'Manutenção', left + 10, y + h / 2);
-
-          ctx.strokeStyle = 'rgba(71,85,105,.35)';
-          ctx.setLineDash([4,5]);
-          ctx.beginPath();
-          ctx.moveTo(left, y + h + 3);
-          ctx.lineTo(left, chart.chartArea.bottom);
-          ctx.moveTo(right, y + h + 3);
-          ctx.lineTo(right, chart.chartArea.bottom);
-          ctx.stroke();
-
-          ctx.restore();
-          return;
-        }
-
-        let row = 0;
-        while (occupied.some(o => Math.abs(o.x - midX) < 38 && o.row === row)) row++;
-        row = Math.min(row, 1);
-        occupied.push({ x: midX, row });
-
-        const w = 32;
-        const h = 24;
-        const left = Math.max(chart.chartArea.left + 4, Math.min(midX - w / 2, chart.chartArea.right - w - 4));
-        const y = top + 28 + row * 28;
-
-        note.__hit = { x: left, y, w, h };
-
-        ctx.save();
-
-        ctx.strokeStyle = 'rgba(245,158,11,.32)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4,5]);
-        ctx.beginPath();
-        ctx.moveTo(midX, y + h + 4);
-        ctx.lineTo(midX, chart.chartArea.bottom);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.shadowColor = 'rgba(15,23,42,.22)';
-        ctx.shadowBlur = 10;
-        ctx.shadowOffsetY = 4;
-        ctx.fillStyle = '#fbbf24';
-        roundRect(ctx, left, y, w, h, 7);
-        ctx.fill();
-
-        ctx.shadowColor = 'transparent';
-        ctx.strokeStyle = '#d97706';
-        ctx.lineWidth = 1;
-        roundRect(ctx, left, y, w, h, 7);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#78350f';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(left + 9, y + 8);
-        ctx.lineTo(left + 23, y + 8);
-        ctx.moveTo(left + 9, y + 12);
-        ctx.lineTo(left + 21, y + 12);
-        ctx.moveTo(left + 9, y + 16);
-        ctx.lineTo(left + 18, y + 16);
-        ctx.stroke();
-
-        ctx.restore();
-      });
-    }
-  };
-
-  function registerPlugin() {
-    if (!window.Chart) return;
-
-    try {
-      if (!Chart.registry.plugins.get('wmoldesNotesPluginComplete')) {
-        Chart.register(notesPlugin);
-      }
-    } catch {
-      try { Chart.register(notesPlugin); } catch {}
-    }
-  }
-
-  function redraw() {
+  function renderLayer(){
     updateButton();
-    registerPlugin();
-
-    const chart = getChart();
-
-    if (chart) {
-      state.chart = chart;
-      try {
-        chart.update('none');
-      } catch {
-        try { chart.draw(); } catch {}
+    const layer=$('historyNotesLayer'); const chart=getChart(); const canvas=$('historyChart');
+    if(!layer||!chart||!canvas||!chart.chartArea){ if(layer)layer.innerHTML=''; return; }
+    layer.innerHTML='';
+    const canvasRect=canvas.getBoundingClientRect();
+    const containerRect=layer.parentElement.getBoundingClientRect();
+    const scaleX=canvasRect.width/canvas.width;
+    const scaleY=canvasRect.height/canvas.height;
+    const topBase=canvasRect.top-containerRect.top+(chart.chartArea.top*scaleY)-62;
+    const leftBase=canvasRect.left-containerRect.left;
+    const rightLimit=canvasRect.width;
+    const occupied=[];
+    visibleNotes().forEach(note=>{
+      const sh=minToHour(timeToMin(note.startTime)), eh=minToHour(timeToMin(note.endTime||note.startTime));
+      const sx=pixelForHour(chart,sh)*scaleX, ex=pixelForHour(chart,eh)*scaleX, mx=pixelForHour(chart,(sh+eh)/2)*scaleX;
+      if(!Number.isFinite(mx))return;
+      const div=document.createElement('div');
+      div.className=note.maintenance?'history-note-gantt':'history-note-marker';
+      div.dataset.noteId=note.id;
+      div.__note=note;
+      if(note.maintenance){
+        const left=Math.max(0,Math.min(sx,ex)); const right=Math.min(rightLimit,Math.max(sx,ex));
+        div.style.left=(leftBase+left)+'px'; div.style.top=topBase+'px'; div.style.width=Math.max(24,right-left)+'px';
+        div.textContent=(right-left)>140?'Manutenção corretiva':'Manutenção';
+      }else{
+        let row=0; while(occupied.some(o=>Math.abs(o.x-mx)<38&&o.row===row))row++; row=Math.min(row,1); occupied.push({x:mx,row});
+        div.style.left=(leftBase+mx-16)+'px'; div.style.top=(topBase+30+row*28)+'px';
+        div.innerHTML='<span></span><span></span><span></span>';
       }
-    }
-  }
-
-  function tooltipEl() {
-    if (state.tooltip) return state.tooltip;
-
-    const t = document.createElement('div');
-    t.className = 'history-note-tooltip';
-    t.style.display = 'none';
-    document.body.appendChild(t);
-    state.tooltip = t;
-
-    return t;
-  }
-
-  function hitNote(evt) {
-    const chart = getChart();
-
-    if (!chart || !chart.canvas) return null;
-
-    const rect = chart.canvas.getBoundingClientRect();
-    const sx = chart.canvas.width / rect.width;
-    const sy = chart.canvas.height / rect.height;
-    const x = (evt.clientX - rect.left) * sx;
-    const y = (evt.clientY - rect.top) * sy;
-    const notes = visibleNotes();
-
-    for (let i = notes.length - 1; i >= 0; i--) {
-      const h = notes[i].__hit;
-      if (!h) continue;
-      if (x >= h.x - 5 && x <= h.x + h.w + 5 && y >= h.y - 5 && y <= h.y + h.h + 5) {
-        return notes[i];
-      }
-    }
-
-    return null;
-  }
-
-  function showTooltip(note, evt) {
-    const t = tooltipEl();
-
-    if (!note) {
-      t.style.display = 'none';
-      return;
-    }
-
-    t.innerHTML = `
-      <div class="history-note-tooltip-time ${note.maintenance ? 'maintenance' : ''}">${esc(note.startTime)} - ${esc(note.endTime || note.startTime)}</div>
-      <div class="history-note-tooltip-message">${esc(note.message)}</div>
-      <div class="history-note-tooltip-meta">${esc(note.author || 'Usuário')} • ${esc(note.updatedAtText || note.createdAtText || '')}</div>
-      <div class="history-note-tooltip-actions">${note.maintenance ? 'Faixa automática de manutenção' : 'Clique para editar/remover'}</div>
-    `;
-
-    t.style.display = 'block';
-
-    let left = evt.clientX + 14;
-    let top = evt.clientY + 14;
-    const r = t.getBoundingClientRect();
-
-    if (left + r.width > window.innerWidth - 12) left = evt.clientX - r.width - 14;
-    if (top + r.height > window.innerHeight - 12) top = evt.clientY - r.height - 14;
-
-    t.style.left = Math.max(12, left) + 'px';
-    t.style.top = Math.max(12, top) + 'px';
-  }
-
-  function bindCanvas() {
-    const canvas = el('historyChart');
-
-    if (!canvas || canvas.__wmNotesBoundComplete) return;
-
-    canvas.__wmNotesBoundComplete = true;
-
-    canvas.addEventListener('mousemove', evt => {
-      const n = hitNote(evt);
-      canvas.style.cursor = n ? 'pointer' : '';
-      showTooltip(n, evt);
-    });
-
-    canvas.addEventListener('mouseleave', () => showTooltip(null));
-
-    canvas.addEventListener('click', evt => {
-      const n = hitNote(evt);
-      if (n && !n.maintenance) openModal(n);
+      div.addEventListener('mouseenter',e=>showTooltip(note,e));
+      div.addEventListener('mousemove',e=>showTooltip(note,e));
+      div.addEventListener('mouseleave',()=>hideTooltip());
+      div.addEventListener('click',()=>{ if(!note.maintenance)openModal(note); });
+      layer.appendChild(div);
     });
   }
 
-  function defaultStart() {
-    const d = new Date();
-    return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes() / 5) * 5)}`;
+  function tooltip(){
+    if(state.tooltip)return state.tooltip;
+    const t=document.createElement('div'); t.className='history-note-tooltip'; t.style.display='none'; document.body.appendChild(t); state.tooltip=t; return t;
+  }
+  function showTooltip(note,e){
+    const t=tooltip();
+    t.innerHTML=`<div class="history-note-tooltip-time ${note.maintenance?'maintenance':''}">${esc(note.startTime)} - ${esc(note.endTime||note.startTime)}</div><div class="history-note-tooltip-message">${esc(note.message)}</div><div class="history-note-tooltip-meta">${esc(note.author||'Usuário')} • ${esc(note.updatedAtText||note.createdAtText||'')}</div><div class="history-note-tooltip-actions">${note.maintenance?'Faixa automática de manutenção':'Clique para editar/remover'}</div>`;
+    t.style.display='block';
+    let l=e.clientX+14, top=e.clientY+14; const r=t.getBoundingClientRect();
+    if(l+r.width>innerWidth-12)l=e.clientX-r.width-14; if(top+r.height>innerHeight-12)top=e.clientY-r.height-14;
+    t.style.left=Math.max(12,l)+'px'; t.style.top=Math.max(12,top)+'px';
+  }
+  function hideTooltip(){ if(state.tooltip)state.tooltip.style.display='none'; }
+
+  function hasFirebase(){ return !!(window.firebase&&firebase.database); }
+  function localKey(){ return `wmoldes_notes_${safeKey(getMachine())}_${getDate()}`; }
+  function loadLocal(){ try{return JSON.parse(localStorage.getItem(localKey())||'[]')}catch{return[]} }
+  function saveLocal(rows){ localStorage.setItem(localKey(),JSON.stringify(rows)); }
+
+  function subscribeNotes(){
+    updateButton(); const machine=getMachine();
+    if(!machine){ state.notes=[]; renderLayer(); return; }
+    if(!hasFirebase()){ state.notes=loadLocal(); renderLayer(); return; }
+    const path=`${ROOT}/${safeKey(machine)}/${getDate()}`;
+    if(state.subscribed&&state.subscribed!==path){ try{firebase.database().ref(state.subscribed).off()}catch{} }
+    state.subscribed=path;
+    firebase.database().ref(path).off();
+    firebase.database().ref(path).on('value',snap=>{
+      const val=snap.val()||{};
+      state.notes=Object.keys(val).map(id=>({id,machine,date:getDate(),...val[id]}));
+      renderLayer();
+    });
   }
 
-  function defaultEnd() {
-    const d = new Date(Date.now() + 30 * 60000);
-    return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes() / 5) * 5)}`;
+  function defaultStart(){ const d=new Date(); return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes()/5)*5)}`; }
+  function defaultEnd(){ const d=new Date(Date.now()+30*60000); return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes()/5)*5)}`; }
+  function openModal(note){
+    ensureUI(); const machine=getMachine(); if(!machine){ alert('Selecione uma máquina antes de criar uma anotação.'); return; }
+    $('historyNoteId').value=note?.id||''; $('historyNoteDate').value=normalizeDate(note?.date||getDate()); $('historyNoteStart').value=note?.startTime||defaultStart(); $('historyNoteEnd').value=note?.endTime||defaultEnd(); $('historyNoteMessage').value=note?.message||'';
+    $('historyNoteDeleteBtn').style.display=note?'inline-flex':'none'; $('historyNoteModalBackdrop').classList.add('active');
   }
-
-  function openModal(note) {
+  function closeModal(){ $('historyNoteModalBackdrop')?.classList.remove('active'); }
+  async function saveNote(){
+    const machine=getMachine(), date=normalizeDate($('historyNoteDate').value||getDate()), id=$('historyNoteId').value;
+    const startTime=$('historyNoteStart').value, endTime=$('historyNoteEnd').value, message=String($('historyNoteMessage').value||'').trim();
+    if(!machine)return alert('Selecione uma máquina.'); if(!startTime||!endTime)return alert('Informe horários.'); if(timeToMin(endTime)<timeToMin(startTime))return alert('Horário final menor que inicial.'); if(!message)return alert('Digite a mensagem.');
+    const author=$('currentUserEmail')?.textContent||'Usuário'; const payload={machine,date,startTime,endTime,message,author,updatedAt:Date.now(),updatedAtText:new Date().toLocaleString('pt-BR')};
+    if(hasFirebase()){ const ref=firebase.database().ref(`${ROOT}/${safeKey(machine)}/${date}`); if(id)await ref.child(id).update(payload); else await ref.push({...payload,createdAt:Date.now(),createdAtText:new Date().toLocaleString('pt-BR')}); }
+    else{ const rows=loadLocal(); if(id){const i=rows.findIndex(r=>r.id===id); if(i>=0)rows[i]={...rows[i],...payload};} else rows.push({id:'local_'+Date.now(),...payload}); saveLocal(rows); state.notes=rows; }
+    closeModal(); subscribeNotes();
+  }
+  async function deleteNote(){
+    const id=$('historyNoteId').value; if(!id||!confirm('Remover esta anotação?'))return;
+    if(hasFirebase()) await firebase.database().ref(`${ROOT}/${safeKey(getMachine())}/${getDate()}`).child(id).remove();
+    else{ const rows=loadLocal().filter(r=>r.id!==id); saveLocal(rows); state.notes=rows; }
+    closeModal(); subscribeNotes();
+  }
+  function bind(){
     ensureUI();
-
-    const machine = getMachine();
-
-    if (!machine) {
-      alert('Selecione uma máquina antes de criar uma anotação.');
-      updateButton();
-      return;
-    }
-
-    const modal = el('historyNoteModalBackdrop');
-
-    if (!modal) {
-      alert('Modal de anotação não encontrado.');
-      return;
-    }
-
-    el('historyNoteId').value = note?.id || '';
-    el('historyNoteDate').value = normalizeDate(note?.date || getDate());
-    el('historyNoteStart').value = note?.startTime || defaultStart();
-    el('historyNoteEnd').value = note?.endTime || defaultEnd();
-    el('historyNoteMessage').value = note?.message || '';
-
-    const del = el('historyNoteDeleteBtn');
-    if (del) del.style.display = note ? 'inline-flex' : 'none';
-
-    modal.classList.add('active');
-    modal.setAttribute('aria-hidden', 'false');
-
-    setTimeout(() => el('historyNoteMessage')?.focus(), 50);
+    if($('historyNoteAddBtn')&&!$('historyNoteAddBtn').__bound){ $('historyNoteAddBtn').__bound=true; $('historyNoteAddBtn').addEventListener('click',()=>openModal(null)); }
+    if($('historyNoteCloseBtn')&&!$('historyNoteCloseBtn').__bound){ $('historyNoteCloseBtn').__bound=true; $('historyNoteCloseBtn').addEventListener('click',closeModal); }
+    if($('historyNoteCancelBtn')&&!$('historyNoteCancelBtn').__bound){ $('historyNoteCancelBtn').__bound=true; $('historyNoteCancelBtn').addEventListener('click',closeModal); }
+    if($('historyNoteSaveBtn')&&!$('historyNoteSaveBtn').__bound){ $('historyNoteSaveBtn').__bound=true; $('historyNoteSaveBtn').addEventListener('click',saveNote); }
+    if($('historyNoteDeleteBtn')&&!$('historyNoteDeleteBtn').__bound){ $('historyNoteDeleteBtn').__bound=true; $('historyNoteDeleteBtn').addEventListener('click',deleteNote); }
+    if($('historyNoteModalBackdrop')&&!$('historyNoteModalBackdrop').__bound){ $('historyNoteModalBackdrop').__bound=true; $('historyNoteModalBackdrop').addEventListener('click',e=>{if(e.target===$('historyNoteModalBackdrop'))closeModal();}); }
+    ['historyMachineSelect','historyDate','customStartTime','customEndTime'].forEach(id=>{ const node=$(id); if(node&&!node.__notesBound){ node.__notesBound=true; node.addEventListener('change',()=>setTimeout(subscribeNotes,150)); }});
+    window.addEventListener('resize',()=>setTimeout(renderLayer,100));
+    const scroll=qs('.chart-scroll'); if(scroll&&!scroll.__notesBound){ scroll.__notesBound=true; scroll.addEventListener('scroll',()=>requestAnimationFrame(renderLayer)); }
   }
-
-  function closeModal() {
-    const modal = el('historyNoteModalBackdrop');
-    if (!modal) return;
-
-    modal.classList.remove('active');
-    modal.setAttribute('aria-hidden', 'true');
-  }
-
-  async function saveNote() {
-    const machine = getMachine();
-    const date = normalizeDate(el('historyNoteDate')?.value || getDate());
-    const startTime = el('historyNoteStart')?.value || '';
-    const endTime = el('historyNoteEnd')?.value || '';
-    const message = String(el('historyNoteMessage')?.value || '').trim();
-    const id = el('historyNoteId')?.value || '';
-
-    if (!machine) return alert('Selecione uma máquina.');
-    if (!date) return alert('Selecione a data.');
-    if (!startTime || !endTime) return alert('Informe horário inicial e final.');
-    if (timeToMin(endTime) < timeToMin(startTime)) return alert('O horário final não pode ser menor que o inicial.');
-    if (!message) return alert('Digite a mensagem.');
-
-    const authorText = el('currentUserEmail')?.textContent || 'Usuário';
-
-    const payload = {
-      machine,
-      date,
-      startTime,
-      endTime,
-      message,
-      author: authorText === 'Carregando...' ? 'Usuário' : authorText,
-      updatedAt: Date.now(),
-      updatedAtText: nowText()
-    };
-
-    if (hasFirebase()) {
-      const base = firebase.database().ref(`${ROOT}/${safeKey(machine)}/${date}`);
-      if (id) {
-        await base.child(id).update(payload);
-      } else {
-        await base.push({ ...payload, createdAt: Date.now(), createdAtText: nowText() });
-      }
-    } else {
-      const rows = loadLocal();
-
-      if (id) {
-        const ix = rows.findIndex(r => r.id === id);
-        if (ix >= 0) rows[ix] = { ...rows[ix], ...payload };
-      } else {
-        rows.push({ id: `local_${Date.now()}`, ...payload, createdAt: Date.now(), createdAtText: nowText() });
-      }
-
-      saveLocal(rows);
-      state.notes = rows;
-    }
-
-    closeModal();
-    subscribeNotes();
-  }
-
-  async function deleteNote() {
-    const id = el('historyNoteId')?.value || '';
-
-    if (!id) return;
-    if (!confirm('Remover esta anotação?')) return;
-
-    const machine = getMachine();
-    const date = getDate();
-
-    if (hasFirebase()) {
-      await firebase.database().ref(`${ROOT}/${safeKey(machine)}/${date}`).child(id).remove();
-    } else {
-      const rows = loadLocal().filter(r => r.id !== id);
-      saveLocal(rows);
-      state.notes = rows;
-    }
-
-    closeModal();
-    subscribeNotes();
-  }
-
-  function bindUI() {
-    ensureUI();
-
-    const add = el('historyNoteAddBtn');
-
-    if (add && !add.__wmBoundComplete) {
-      add.__wmBoundComplete = true;
-      add.addEventListener('click', evt => {
-        evt.preventDefault();
-        openModal(null);
-      });
-    }
-
-    const close = el('historyNoteCloseBtn');
-    if (close && !close.__wmBoundComplete) {
-      close.__wmBoundComplete = true;
-      close.addEventListener('click', closeModal);
-    }
-
-    const cancel = el('historyNoteCancelBtn');
-    if (cancel && !cancel.__wmBoundComplete) {
-      cancel.__wmBoundComplete = true;
-      cancel.addEventListener('click', closeModal);
-    }
-
-    const save = el('historyNoteSaveBtn');
-    if (save && !save.__wmBoundComplete) {
-      save.__wmBoundComplete = true;
-      save.addEventListener('click', saveNote);
-    }
-
-    const del = el('historyNoteDeleteBtn');
-    if (del && !del.__wmBoundComplete) {
-      del.__wmBoundComplete = true;
-      del.addEventListener('click', deleteNote);
-    }
-
-    const backdrop = el('historyNoteModalBackdrop');
-    if (backdrop && !backdrop.__wmBoundComplete) {
-      backdrop.__wmBoundComplete = true;
-      backdrop.addEventListener('click', evt => {
-        if (evt.target === backdrop) closeModal();
-      });
-    }
-
-    const machine = el('historyMachineSelect');
-    if (machine && !machine.__wmNoteSelectBoundComplete) {
-      machine.__wmNoteSelectBoundComplete = true;
-
-      machine.addEventListener('change', () => setTimeout(subscribeNotes, 150));
-      machine.addEventListener('input', () => setTimeout(subscribeNotes, 150));
-
-      if (window.MutationObserver) {
-        new MutationObserver(() => setTimeout(subscribeNotes, 150))
-          .observe(machine, { childList: true, subtree: true, attributes: true });
-      }
-    }
-
-    const date = el('historyDate');
-    if (date && !date.__wmNoteDateBoundComplete) {
-      date.__wmNoteDateBoundComplete = true;
-      date.addEventListener('change', () => setTimeout(subscribeNotes, 150));
-      date.addEventListener('input', () => setTimeout(subscribeNotes, 150));
-    }
-
-    const start = el('customStartTime');
-    if (start && !start.__wmNoteBoundComplete) {
-      start.__wmNoteBoundComplete = true;
-      start.addEventListener('change', redraw);
-    }
-
-    const end = el('customEndTime');
-    if (end && !end.__wmNoteBoundComplete) {
-      end.__wmNoteBoundComplete = true;
-      end.addEventListener('change', redraw);
-    }
-  }
-
-  function init() {
-    if (state.ready) return;
-    state.ready = true;
-
-    ensureUI();
-    registerPlugin();
-    bindUI();
-    bindCanvas();
-    updateButton();
-
-    setTimeout(subscribeNotes, 500);
-    setTimeout(redraw, 1200);
-
-    setInterval(() => {
-      ensureUI();
-      registerPlugin();
-      bindUI();
-      bindCanvas();
-      updateButton();
-
-      const chart = getChart();
-
-      if (chart && chart !== state.chart) {
-        state.chart = chart;
-        redraw();
-      }
-    }, 1000);
-  }
-
-  window.WMoldesHistoryNotes = {
-    open: () => openModal(null),
-    refresh: () => subscribeNotes(),
-    redraw: () => redraw()
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  function init(){ ensureUI(); bind(); updateButton(); setTimeout(subscribeNotes,700); setInterval(()=>{ensureUI(); bind(); updateButton(); renderLayer();},1500); }
+  window.WMoldesHistoryNotes={open:()=>openModal(null),refresh:()=>subscribeNotes(),redraw:()=>renderLayer()};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init); else init();
 })();
