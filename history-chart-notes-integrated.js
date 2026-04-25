@@ -62,12 +62,55 @@
     if(!chart||!chart.scales) return NaN;
     const xs=chart.scales.x||Object.values(chart.scales).find(s=>s.axis==='x');
     if(!xs) return NaN;
+
+    const labels=chart.data?.labels||[];
+
+    // Quando o eixo X é categoria, Chart.js só posiciona por índice.
+    // Por isso NÃO usamos o ponto mais próximo. Interpolamos entre os horários
+    // visíveis para colocar a anotação exatamente no horário real.
+    const points=[];
+    labels.forEach((label,index)=>{
+      const h=labelHour(label);
+      if(h==null) return;
+      const px=xs.getPixelForValue(index);
+      if(Number.isFinite(px)) points.push({h,px,index});
+    });
+
+    if(points.length>=2){
+      // Corrige virada de turno/noite: 22:00, 23:00, 00:00...
+      for(let i=1;i<points.length;i++){
+        if(points[i].h < points[i-1].h) points[i].h += 24;
+      }
+
+      let target=hour;
+      if(target < points[0].h && points[points.length-1].h > 24) target += 24;
+
+      if(target <= points[0].h){
+        const a=points[0], b=points[1];
+        const ratio=(target-a.h)/(b.h-a.h || 1);
+        return a.px+(b.px-a.px)*ratio;
+      }
+
+      if(target >= points[points.length-1].h){
+        const a=points[points.length-2], b=points[points.length-1];
+        const ratio=(target-a.h)/(b.h-a.h || 1);
+        return a.px+(b.px-a.px)*ratio;
+      }
+
+      for(let i=0;i<points.length-1;i++){
+        const a=points[i], b=points[i+1];
+        if(target>=a.h && target<=b.h){
+          const ratio=(target-a.h)/(b.h-a.h || 1);
+          return a.px+(b.px-a.px)*ratio;
+        }
+      }
+    }
+
+    // Fallback para eixo linear/time.
     let px=xs.getPixelForValue(hour);
     if(Number.isFinite(px)&&px>=xs.left-80&&px<=xs.right+80) return px;
-    const labels=chart.data?.labels||[];
-    let best=0,diff=Infinity;
-    labels.forEach((l,i)=>{ const h=labelHour(l); if(h==null)return; const d=Math.abs(h-hour); if(d<diff){diff=d;best=i;}});
-    return xs.getPixelForValue(best);
+
+    return NaN;
   }
 
   function ensureUI(){
