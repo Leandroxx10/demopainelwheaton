@@ -1,64 +1,102 @@
-// WMoldes - Modal moderno de comentários do painel
+// WMoldes - Modal profissional de comentários com filtro por máquina direto do Firebase
 (function () {
   'use strict';
 
-  const state = { comments: [], filtered: [], loading: false };
+  const COMMENT_PATHS = ['comments', 'comentarios', 'machineComments', 'comentariosMaquinas'];
+
+  const OFFICIAL_MACHINES = [
+    'A1','A2','A3','A4','A5','A6',
+    'B1','B2','B3','B4','B5','B6','B7','B8',
+    'C1','C2','C3','C4','C5','C6','C7','C8',
+    '10','11','12','13','14','15'
+  ];
+
+  const state = {
+    comments: [],
+    filtered: [],
+    loading: false
+  };
 
   function $(id) { return document.getElementById(id); }
+
   function esc(v) {
-    return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));
+    return String(v ?? '').replace(/[&<>"']/g, s => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    }[s]));
   }
-  function getMachine() {
-    const s = $('historyMachineSelect');
-    return s && s.value ? String(s.value) : '';
+
+  function normalizeMachine(value) {
+    let text = String(value ?? '').trim();
+    text = text.replace(/^Máquina\s+/i, '').trim();
+    return text;
   }
+
+  function getCurrentMachine() {
+    const select = $('historyMachineSelect');
+    if (!select) return '';
+
+    const value = normalizeMachine(select.value);
+    const label = select.options && select.selectedIndex >= 0
+      ? normalizeMachine(select.options[select.selectedIndex].textContent)
+      : '';
+
+    const machine = value || label;
+
+    if (!machine || /carregando|selecione/i.test(machine)) return '';
+    return machine;
+  }
+
   function formatDate(value) {
     if (!value) return '';
-    if (typeof value === 'number') return new Date(value).toLocaleString('pt-BR');
+
+    if (typeof value === 'number') {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR');
+    }
+
     const d = new Date(value);
     if (!Number.isNaN(d.getTime())) return d.toLocaleString('pt-BR');
+
     return String(value);
   }
 
-
-  function buildDefaultMachineList() {
-    // Lista oficial do gráfico/histórico.
-    return [
-      'A1','A2','A3','A4','A5','A6',
-      'B1','B2','B3','B4','B5','B6','B7','B8',
-      'C1','C2','C3','C4','C5','C6','C7','C8',
-      '10','11','12','13','14','15'
-    ];
+  function timestampValue(value) {
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? 0 : d.getTime();
   }
 
-  function getMachinesFromPanel() {
-    const official = buildDefaultMachineList();
-    const machines = new Set(official);
+  function getMachinesForFilter() {
+    const machines = new Set(OFFICIAL_MACHINES);
 
-    // Também aceita valores reais do select do gráfico, caso o Firebase acrescente alguma máquina no futuro.
     const historySelect = $('historyMachineSelect');
     if (historySelect) {
       Array.from(historySelect.options || []).forEach(opt => {
-        const value = String(opt.value || '').trim();
-        const text = String(opt.textContent || '').replace(/^Máquina\s+/i, '').trim();
-        const machine = value || text;
-
-        if (machine && !/carregando|selecione/i.test(machine)) {
-          machines.add(machine);
-        }
+        const machine = normalizeMachine(opt.value || opt.textContent);
+        if (machine && !/carregando|selecione/i.test(machine)) machines.add(machine);
       });
     }
 
-    return Array.from(machines).sort((a, b) => {
-      const officialIndexA = official.indexOf(String(a));
-      const officialIndexB = official.indexOf(String(b));
+    if (window.allAdminMachines && typeof window.allAdminMachines === 'object') {
+      Object.keys(window.allAdminMachines).forEach(m => machines.add(normalizeMachine(m)));
+    }
 
-      if (officialIndexA !== -1 && officialIndexB !== -1) {
-        return officialIndexA - officialIndexB;
-      }
+    if (window.allMachinesData && typeof window.allMachinesData === 'object') {
+      Object.keys(window.allMachinesData).forEach(m => machines.add(normalizeMachine(m)));
+    }
 
-      if (officialIndexA !== -1) return -1;
-      if (officialIndexB !== -1) return 1;
+    return Array.from(machines).filter(Boolean).sort((a, b) => {
+      const ia = OFFICIAL_MACHINES.indexOf(a);
+      const ib = OFFICIAL_MACHINES.indexOf(b);
+
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
 
       return String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
     });
@@ -69,23 +107,25 @@
     if (!select) return;
 
     const selected = select.value || 'all';
-    const machines = getMachinesFromPanel();
+    const machines = getMachinesForFilter();
 
-    select.innerHTML = `
-      <option value="all">Todas as máquinas</option>
-      <option value="current">Máquina selecionada</option>
-      <option value="" disabled>──────────</option>
-      ${machines.map(m => `<option value="${esc(m)}">Máquina ${esc(m)}</option>`).join('')}
-    `;
+    select.innerHTML = [
+      '<option value="all">Todas as máquinas</option>',
+      '<option value="current">Máquina selecionada</option>',
+      '<option value="" disabled>──────────</option>',
+      ...machines.map(machine => `<option value="${esc(machine)}">Máquina ${esc(machine)}</option>`)
+    ].join('');
 
-    if (Array.from(select.options).some(o => o.value === selected)) {
+    if (Array.from(select.options).some(opt => opt.value === selected)) {
       select.value = selected;
     }
   }
 
-
   function ensureUI() {
-    const historyControls = document.querySelector('#history-section .history-controls') || document.querySelector('#history-section .history-header') || document.querySelector('#history-section');
+    const historyControls =
+      document.querySelector('#history-section .history-controls') ||
+      document.querySelector('#history-section .history-header') ||
+      document.querySelector('#history-section');
 
     if (historyControls && !$('historyCommentsBtn')) {
       const btn = document.createElement('button');
@@ -106,23 +146,20 @@
           <div class="history-comments-header">
             <div>
               <h3><i class="fas fa-comments"></i> Comentários</h3>
-              <p>Visualize comentários por máquina ou todos os registros.</p>
+              <p>Comentários salvos no Firebase, filtrados por máquina.</p>
             </div>
-            <button type="button" id="historyCommentsClose" class="history-comments-close">
+            <button type="button" id="historyCommentsClose" class="history-comments-close" aria-label="Fechar">
               <i class="fas fa-times"></i>
             </button>
           </div>
 
           <div class="history-comments-filters">
             <div class="history-comments-field">
-              <label>Máquina</label>
-              <select id="historyCommentsMachineFilter">
-                <option value="all">Todas as máquinas</option>
-                <option value="current">Máquina selecionada</option>
-              </select>
+              <label for="historyCommentsMachineFilter">Máquina</label>
+              <select id="historyCommentsMachineFilter"></select>
             </div>
             <div class="history-comments-field">
-              <label>Buscar</label>
+              <label for="historyCommentsSearch">Buscar</label>
               <input type="text" id="historyCommentsSearch" placeholder="Buscar por texto, autor ou máquina...">
             </div>
             <button type="button" id="historyCommentsReload" class="history-comments-reload">
@@ -135,11 +172,12 @@
           <div class="history-comments-list" id="historyCommentsList"></div>
         </div>
       `;
+
       document.body.appendChild(modal);
 
       $('historyCommentsClose').addEventListener('click', closeModal);
-      $('historyCommentsModal').addEventListener('click', e => {
-        if (e.target === $('historyCommentsModal')) closeModal();
+      $('historyCommentsModal').addEventListener('click', event => {
+        if (event.target === $('historyCommentsModal')) closeModal();
       });
       $('historyCommentsMachineFilter').addEventListener('change', applyFilters);
       $('historyCommentsSearch').addEventListener('input', applyFilters);
@@ -151,7 +189,11 @@
 
   function openModal() {
     ensureUI();
-    $('historyCommentsModal').classList.add('active');
+    populateMachineFilter();
+
+    const modal = $('historyCommentsModal');
+    modal.classList.add('active');
+
     loadComments();
   }
 
@@ -159,35 +201,111 @@
     $('historyCommentsModal')?.classList.remove('active');
   }
 
+  async function readCommentsFromFirebase() {
+    const comments = [];
+
+    if (!window.firebase || !firebase.database) {
+      return comments;
+    }
+
+    for (const path of COMMENT_PATHS) {
+      try {
+        const snapshot = await firebase.database().ref(path).once('value');
+        const value = snapshot.val();
+
+        if (value) collectComments(value, comments, path);
+      } catch (error) {
+        console.warn('Falha ao ler comentários em', path, error);
+      }
+    }
+
+    return comments;
+  }
+
+  function collectComments(node, output, source, parentMachine = '') {
+    if (!node || typeof node !== 'object') return;
+
+    Object.entries(node).forEach(([key, value]) => {
+      if (!value || typeof value !== 'object') return;
+
+      const message =
+        value.commentText ||
+        value.text ||
+        value.comment ||
+        value.mensagem ||
+        value.message ||
+        value.comentario ||
+        '';
+
+      const looksLikeComment = !!message;
+
+      if (looksLikeComment) {
+        const machine = normalizeMachine(
+          value.machine ||
+          value.maquina ||
+          value.machineId ||
+          value.idMaquina ||
+          value.nomeMaquina ||
+          parentMachine ||
+          key
+        );
+
+        const rawTimestamp =
+          value.timestamp ||
+          value.createdAt ||
+          value.dataCriacao ||
+          value.date ||
+          value.updatedAt ||
+          value.created_at ||
+          0;
+
+        output.push({
+          id: key,
+          source,
+          machine,
+          author:
+            value.author ||
+            value.autor ||
+            value.user ||
+            value.usuario ||
+            value.email ||
+            value.createdBy ||
+            'Usuário',
+          text: message,
+          timestamp: timestampValue(rawTimestamp),
+          createdAtText:
+            value.createdAtText ||
+            value.data ||
+            value.dateText ||
+            value.dataTexto ||
+            formatDate(rawTimestamp)
+        });
+      } else {
+        collectComments(value, output, source, parentMachine || key);
+      }
+    });
+  }
+
   async function loadComments() {
     ensureUI();
+    populateMachineFilter();
+
     state.loading = true;
     renderLoading();
 
     try {
-      const comments = [];
-
-      if (window.firebase && firebase.database) {
-        const paths = ['comments', 'comentarios', 'machineComments', 'comentariosMaquinas'];
-
-        for (const path of paths) {
-          try {
-            const snap = await firebase.database().ref(path).once('value');
-            const val = snap.val();
-            if (val) collectComments(val, comments, path);
-          } catch (err) {
-            console.warn('Falha ao ler comentários em', path, err);
-          }
-        }
-      }
+      const comments = await readCommentsFromFirebase();
 
       const seen = new Set();
-      state.comments = comments.filter(c => {
-        const key = `${c.machine}|${c.author}|${c.text}|${c.createdAtText}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+      state.comments = comments
+        .filter(comment => comment.text)
+        .filter(comment => {
+          const key = `${comment.machine}|${comment.author}|${comment.text}|${comment.createdAtText}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
 
       applyFilters();
     } catch (error) {
@@ -198,45 +316,26 @@
     }
   }
 
-  function collectComments(node, out, source, parentMachine = '') {
-    if (!node || typeof node !== 'object') return;
-
-    Object.entries(node).forEach(([key, value]) => {
-      if (!value || typeof value !== 'object') return;
-
-      const looksComment = value.commentText || value.text || value.comment || value.mensagem || value.message || value.comentario;
-
-      if (looksComment) {
-        const machine = value.machine || value.maquina || value.machineId || value.nomeMaquina || parentMachine || key;
-        const timestamp = value.timestamp || value.createdAt || value.dataCriacao || value.date || value.updatedAt || 0;
-
-        out.push({
-          id: key,
-          source,
-          machine,
-          author: value.author || value.autor || value.user || value.usuario || value.email || 'Usuário',
-          text: value.commentText || value.text || value.comment || value.mensagem || value.message || value.comentario || '',
-          timestamp,
-          createdAtText: value.createdAtText || value.data || value.dateText || formatDate(timestamp)
-        });
-      } else {
-        collectComments(value, out, source, parentMachine || key);
-      }
-    });
-  }
-
   function applyFilters() {
     const filter = $('historyCommentsMachineFilter')?.value || 'all';
-    const q = String($('historyCommentsSearch')?.value || '').toLowerCase().trim();
-    const currentMachine = getMachine();
+    const query = String($('historyCommentsSearch')?.value || '').toLowerCase().trim();
+    const currentMachine = getCurrentMachine();
 
-    state.filtered = state.comments.filter(c => {
-      if (filter === 'current' && currentMachine && String(c.machine) !== String(currentMachine)) return false;
-      if (filter !== 'all' && filter !== 'current' && String(c.machine) !== String(filter)) return false;
+    state.filtered = state.comments.filter(comment => {
+      const commentMachine = normalizeMachine(comment.machine);
 
-      if (q) {
-        const hay = `${c.machine} ${c.author} ${c.text} ${c.createdAtText}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+      if (filter === 'current') {
+        if (!currentMachine) return false;
+        if (String(commentMachine) !== String(currentMachine)) return false;
+      }
+
+      if (filter !== 'all' && filter !== 'current') {
+        if (String(commentMachine) !== String(filter)) return false;
+      }
+
+      if (query) {
+        const haystack = `${commentMachine} ${comment.author} ${comment.text} ${comment.createdAtText}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
       }
 
       return true;
@@ -246,18 +345,25 @@
   }
 
   function renderLoading() {
-    $('historyCommentsSummary').innerHTML = '';
-    $('historyCommentsList').innerHTML = `
-      <div class="history-comments-loading">
-        <div class="history-comments-spinner"></div>
-        <span>Carregando comentários...</span>
-      </div>
-    `;
+    const summary = $('historyCommentsSummary');
+    const list = $('historyCommentsList');
+
+    if (summary) summary.innerHTML = '';
+    if (list) {
+      list.innerHTML = `
+        <div class="history-comments-loading">
+          <div class="history-comments-spinner"></div>
+          <span>Carregando comentários do Firebase...</span>
+        </div>
+      `;
+    }
   }
 
   function render() {
     const list = $('historyCommentsList');
     const summary = $('historyCommentsSummary');
+
+    if (!list || !summary) return;
 
     summary.innerHTML = `
       <div><strong>${state.filtered.length}</strong> comentário(s) exibido(s)</div>
@@ -269,25 +375,42 @@
       return;
     }
 
-    list.innerHTML = state.filtered.map(c => `
+    list.innerHTML = state.filtered.map(comment => `
       <article class="history-comment-card">
         <div class="history-comment-card-top">
           <div class="history-comment-machine">
             <i class="fas fa-industry"></i>
-            Máquina ${esc(c.machine || '-')}
+            Máquina ${esc(comment.machine || '-')}
           </div>
-          <div class="history-comment-date">${esc(c.createdAtText || '')}</div>
+          <div class="history-comment-date">${esc(comment.createdAtText || '')}</div>
         </div>
-        <div class="history-comment-text">${esc(c.text)}</div>
+        <div class="history-comment-text">${esc(comment.text)}</div>
         <div class="history-comment-footer">
-          <span><i class="fas fa-user"></i> ${esc(c.author || 'Usuário')}</span>
-          <span>${esc(c.source || '')}</span>
+          <span><i class="fas fa-user"></i> ${esc(comment.author || 'Usuário')}</span>
+          <span>${esc(comment.source || '')}</span>
         </div>
       </article>
     `).join('');
   }
 
-  document.addEventListener('DOMContentLoaded', ensureUI);
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureUI();
+    setInterval(populateMachineFilter, 2500);
+  });
 
-  window.WMoldesCommentsModal = { open: openModal, reload: loadComments };
+  window.WMoldesCommentsModal = {
+    open: openModal,
+    reload: loadComments,
+    getAll: async () => {
+      const comments = await readCommentsFromFirebase();
+      return comments.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    },
+    getByMachine: async machine => {
+      const normalized = normalizeMachine(machine);
+      const comments = await readCommentsFromFirebase();
+      return comments
+        .filter(comment => normalizeMachine(comment.machine) === normalized)
+        .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    }
+  };
 })();

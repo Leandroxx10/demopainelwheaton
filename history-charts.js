@@ -638,6 +638,15 @@
       const margin = 12;
       let y = 14;
 
+      function addPageIfNeeded(requiredHeight) {
+        if (y + requiredHeight > pageHeight - 12) {
+          pdf.addPage();
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+          y = 14;
+        }
+      }
+
       pdf.setFillColor(255, 255, 255);
       pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
@@ -665,6 +674,7 @@
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
         const tempCtx = tempCanvas.getContext('2d');
+
         tempCtx.fillStyle = '#ffffff';
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         tempCtx.drawImage(canvas, 0, 0);
@@ -702,10 +712,10 @@
         pdf.setFontSize(8);
 
         let x = margin;
-        headers.forEach((h, i) => {
-          pdf.rect(x, y, colWidths[i], 7, 'F');
-          pdf.text(h, x + 2, y + 4.8);
-          x += colWidths[i];
+        headers.forEach((header, index) => {
+          pdf.rect(x, y, colWidths[index], 7, 'F');
+          pdf.text(header, x + 2, y + 4.8);
+          x += colWidths[index];
         });
 
         y += 7;
@@ -723,27 +733,79 @@
         pdf.text('Nenhum registro encontrado.', margin + 2, y + 5.3);
         y += 8;
       } else {
-        rows.forEach((row, idx) => {
-          if (y > pageHeight - 18) {
-            pdf.addPage();
-            pdf.setFillColor(255, 255, 255);
-            pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-            y = 14;
-            drawHeader();
-          }
+        rows.forEach((row, rowIndex) => {
+          addPageIfNeeded(8);
 
           let x = margin;
-          const bg = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          const bg = rowIndex % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+
           pdf.setFillColor(bg[0], bg[1], bg[2]);
 
-          headers.forEach((_, i) => {
-            pdf.rect(x, y, colWidths[i], 7, 'F');
+          headers.forEach((_, index) => {
+            pdf.rect(x, y, colWidths[index], 7, 'F');
             pdf.setTextColor(15, 23, 42);
-            pdf.text((row[i] || '').slice(0, 28), x + 2, y + 4.8);
-            x += colWidths[i];
+            pdf.text((row[index] || '').slice(0, 28), x + 2, y + 4.8);
+            x += colWidths[index];
           });
 
           y += 7;
+        });
+      }
+
+      y += 10;
+
+      // Comentários da máquina no PDF
+      let pdfComments = [];
+
+      if (window.WMoldesCommentsModal && typeof window.WMoldesCommentsModal.getByMachine === 'function') {
+        pdfComments = await window.WMoldesCommentsModal.getByMachine(machine);
+      }
+
+      addPageIfNeeded(25);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text('Comentários da máquina', margin, y);
+      y += 7;
+
+      if (!pdfComments.length) {
+        pdf.setFillColor(248, 250, 252);
+        pdf.setDrawColor(226, 232, 240);
+        pdf.roundedRect(margin, y, pageWidth - margin * 2, 16, 3, 3, 'FD');
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text('Nenhum comentário encontrado para esta máquina.', margin + 4, y + 9.5);
+        y += 20;
+      } else {
+        pdfComments.slice(0, 30).forEach(comment => {
+          const dateText = comment.createdAtText || '';
+          const author = comment.author || 'Usuário';
+          const message = comment.text || '';
+          const messageLines = pdf.splitTextToSize(message, pageWidth - margin * 2 - 8);
+          const boxHeight = Math.max(22, 15 + messageLines.length * 4);
+
+          addPageIfNeeded(boxHeight + 5);
+
+          pdf.setFillColor(248, 250, 252);
+          pdf.setDrawColor(226, 232, 240);
+          pdf.roundedRect(margin, y, pageWidth - margin * 2, boxHeight, 3, 3, 'FD');
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(8.5);
+          pdf.setTextColor(37, 99, 235);
+          pdf.text(dateText || '-', margin + 4, y + 6);
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setTextColor(71, 85, 105);
+          pdf.text(`Autor: ${author}`, margin + 4, y + 11);
+
+          pdf.setTextColor(15, 23, 42);
+          pdf.text(messageLines, margin + 4, y + 17);
+
+          y += boxHeight + 5;
         });
       }
 

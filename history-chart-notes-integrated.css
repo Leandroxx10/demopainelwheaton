@@ -231,3 +231,14 @@
   color: #0f172a;
   background: #ffffff;
 }
+
+
+/* Ajuste definitivo do select de comentários */
+#historyCommentsMachineFilter {
+  min-height: 44px;
+}
+
+#historyCommentsMachineFilter option {
+  color: #0f172a;
+  background: #ffffff;
+}
