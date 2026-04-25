@@ -619,7 +619,112 @@
     chartType = chartType === 'line' ? 'bar' : 'line';
     buildChart(displayedData.length ? displayedData : currentData);
   };
-  window.exportHistoryPdf = function () {
-    safeAlert('info', 'Exportação PDF indisponível nesta versão.');
+  window.exportHistoryPdf = async function () {
+    try {
+      const machine = $('historyMachineSelect')?.value || currentMachine || '-';
+      const date = $('historyDate')?.value || currentDate || '-';
+      const period = getActivePeriod();
+
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        alert('Biblioteca PDF não carregada. Atualize a página com Ctrl + F5 e tente novamente.');
+        return;
+      }
+
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 12;
+      let y = 14;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(16);
+      pdf.text('Histórico de Produção', margin, y);
+
+      y += 8;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(10);
+      pdf.text(`Máquina: ${machine}`, margin, y);
+      pdf.text(`Data: ${date}`, margin + 65, y);
+      pdf.text(`Período: ${period}`, margin + 125, y);
+
+      y += 7;
+      pdf.setDrawColor(220, 226, 235);
+      pdf.line(margin, y, pageWidth - margin, y);
+      y += 8;
+
+      const canvas = $('historyChart');
+
+      if (canvas) {
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        const imgWidth = pageWidth - margin * 2;
+        const imgHeight = Math.min(95, (canvas.height * imgWidth) / canvas.width);
+
+        pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
+        y += imgHeight + 10;
+      }
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.text('Registros do dia', margin, y);
+      y += 7;
+
+      const rows = Array.from(document.querySelectorAll('#historyTableBody tr')).map(tr =>
+        Array.from(tr.children).map(td => String(td.textContent || '').trim())
+      );
+
+      const headers = ['Horário', 'Moldes', 'Blanks', 'Neck Rings', 'Funís'];
+      const colWidths = [42, 30, 30, 38, 28];
+
+      function drawTableHeader() {
+        pdf.setFillColor(37, 99, 235);
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+
+        let x = margin;
+        headers.forEach((h, i) => {
+          pdf.rect(x, y, colWidths[i], 7, 'F');
+          pdf.text(h, x + 2, y + 4.8);
+          x += colWidths[i];
+        });
+
+        y += 7;
+        pdf.setTextColor(15, 23, 42);
+      }
+
+      drawTableHeader();
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+
+      rows.forEach((row, idx) => {
+        if (y > pageHeight - 18) {
+          pdf.addPage();
+          y = 14;
+          drawTableHeader();
+        }
+
+        let x = margin;
+        const shade = idx % 2 === 0 ? 248 : 255;
+        pdf.setFillColor(shade, shade === 248 ? 250 : 255, shade === 248 ? 252 : 255);
+
+        headers.forEach((_, i) => {
+          pdf.rect(x, y, colWidths[i], 7, 'F');
+          const text = (row[i] || '').slice(0, 28);
+          pdf.text(text, x + 2, y + 4.8);
+          x += colWidths[i];
+        });
+
+        y += 7;
+      });
+
+      const filename = `historico_${String(machine).replace(/\s+/g, '_')}_${String(date).replaceAll('/', '-')}.pdf`;
+      pdf.save(filename);
+    } catch (error) {
+      console.error('Erro ao exportar PDF:', error);
+      alert('Erro ao exportar PDF: ' + (error.message || error));
+    }
   };
 })();
