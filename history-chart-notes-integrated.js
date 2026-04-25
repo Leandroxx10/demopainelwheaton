@@ -1,559 +1,394 @@
 /*
- * history-chart-notes-integrated.js
- * Integra anotações diretamente no canvas do gráfico de histórico.
- * Requisitos: Chart.js 4.x, Firebase Database 8.x, historyChart canvas existente.
+ * WMoldes - Anotações profissionais no gráfico de histórico
+ * - Botão aparece apenas quando há máquina selecionada
+ * - Modal de adicionar/editar/remover
+ * - Salva no Firebase Realtime Database
+ * - Desenha bloco de notas dentro do canvas, no topo, alinhado pelo horário
+ * - Desenha manutenção corretiva em faixa tipo Gantt: início -> retorno
  */
 (function () {
   'use strict';
 
-  const STATE = {
+  const ROOT = 'historyChartNotesV2';
+  const state = {
     notes: [],
-    noteById: new Map(),
-    currentMachine: '',
-    currentDate: '',
     chart: null,
-    hoverNote: null,
-    tooltipEl: null,
-    dbReady: false,
-    userEmail: '',
-    pendingRender: false
+    subscribedPath: '',
+    tooltip: null,
+    ready: false
   };
 
-  const FIREBASE_ROOT = 'historyChartNotes';
-
-  window.WMoldesHistoryNotes = window.WMoldesHistoryNotes || {
-    open: function () {
-      const openWhenReady = () => {
-        if (typeof window.__wmoldesOpenHistoryNoteModal === 'function') {
-          window.__wmoldesOpenHistoryNoteModal();
-        }
-      };
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', openWhenReady, { once: true });
-      } else {
-        openWhenReady();
-      }
-    },
-    refresh: function () {
-      if (typeof window.__wmoldesRefreshHistoryNotes === 'function') {
-        window.__wmoldesRefreshHistoryNotes();
-      }
-    }
-  };
-
-
-  function $(id) {
-    return document.getElementById(id);
+  function el(id) { return document.getElementById(id); }
+  function qs(sel) { return document.querySelector(sel); }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function nowText() {
+    const d = new Date();
+    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
-
-  function pad2(value) {
-    return String(value).padStart(2, '0');
-  }
-
   function todayISO() {
     const d = new Date();
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));
+  }
+  function safeKey(v) {
+    return String(v || 'sem-maquina').replace(/[.#$/\[\]]/g, '_');
   }
 
-  function normalizeDate(value) {
-    if (!value) return todayISO();
-
-    // input date
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-
-    // dd/mm/yyyy
-    const br = String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  function normalizeDate(v) {
+    if (!v) return todayISO();
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const br = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
     if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-
-    // Firebase/history keys sometimes include date text
-    const iso = String(value).match(/(\d{4})-(\d{2})-(\d{2})/);
+    const iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-
     return todayISO();
   }
 
-  function getSelectedDate() {
-    const el = $('historyDate');
-    if (!el) return todayISO();
-
-    const selectedOption = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
-    return normalizeDate(el.value || (selectedOption ? selectedOption.textContent : ''));
-  }
-
-  function getSelectedMachine() {
-    const el = $('historyMachineSelect');
-    if (!el) return '';
-
-    const value = String(el.value || '').trim();
+  function getMachine() {
+    const s = el('historyMachineSelect');
+    if (!s) return '';
+    const value = String(s.value || '').trim();
+    const text = s.options && s.selectedIndex >= 0 ? String(s.options[s.selectedIndex].textContent || '').trim().toLowerCase() : '';
     if (!value) return '';
-
-    const text = el.options && el.selectedIndex >= 0
-      ? String(el.options[el.selectedIndex].textContent || '').trim().toLowerCase()
-      : '';
-
-    if (value.toLowerCase().includes('carregando')) return '';
-    if (text.includes('carregando')) return '';
+    if (value.toLowerCase().includes('carregando') || text.includes('carregando')) return '';
     if (text.includes('selecione') && !value) return '';
-
     return value;
   }
 
-  function timeToMinutes(time) {
-    if (!time) return 0;
-    const m = String(time).match(/^(\d{1,2}):(\d{2})/);
+  function getDate() {
+    const s = el('historyDate');
+    if (!s) return todayISO();
+    const optText = s.options && s.selectedIndex >= 0 ? s.options[s.selectedIndex].textContent : '';
+    return normalizeDate(s.value || optText);
+  }
+
+  function timeToMin(t) {
+    const m = String(t || '').match(/(\d{1,2}):(\d{2})/);
     if (!m) return 0;
     return Math.max(0, Math.min(1439, Number(m[1]) * 60 + Number(m[2])));
   }
-
-  function minutesToDecimalHour(minutes) {
-    return minutes / 60;
-  }
-
-  function noteMidValue(note) {
-    const start = timeToMinutes(note.startTime);
-    const end = timeToMinutes(note.endTime || note.startTime);
-    return minutesToDecimalHour(start + Math.max(0, end - start) / 2);
-  }
-
-  function getScaleX(chart) {
-    if (!chart || !chart.scales) return null;
-    return chart.scales.x || chart.scales['x-axis-0'] || Object.values(chart.scales).find(s => s.axis === 'x');
-  }
-
-  function getScaleY(chart) {
-    if (!chart || !chart.scales) return null;
-    return chart.scales.y || chart.scales['y-axis-0'] || Object.values(chart.scales).find(s => s.axis === 'y');
-  }
-
-  function labelToDecimalHour(label) {
-    if (label == null) return null;
-    const text = String(label);
-    const m = text.match(/(\d{1,2}):(\d{2})/);
-    if (!m) return null;
-    return Number(m[1]) + Number(m[2]) / 60;
-  }
-
-  function getPixelForNote(chart, note) {
-    const xScale = getScaleX(chart);
-    if (!xScale) return null;
-
-    const target = noteMidValue(note);
-
-    // Linear/time scale
-    if (typeof xScale.getPixelForValue === 'function') {
-      let px = xScale.getPixelForValue(target);
-      if (Number.isFinite(px) && px >= xScale.left - 80 && px <= xScale.right + 80) return px;
-
-      // Category scale: find nearest label by HH:mm
-      const labels = chart.data && chart.data.labels ? chart.data.labels : [];
-      if (labels.length) {
-        let bestIndex = -1;
-        let bestDiff = Infinity;
-        labels.forEach((label, idx) => {
-          const hour = labelToDecimalHour(label);
-          if (hour == null) return;
-          const diff = Math.abs(hour - target);
-          if (diff < bestDiff) {
-            bestDiff = diff;
-            bestIndex = idx;
-          }
-        });
-
-        if (bestIndex >= 0) {
-          px = xScale.getPixelForValue(bestIndex);
-          if (Number.isFinite(px)) return px;
-        }
-      }
+  function minToHour(m) { return m / 60; }
+  function extractTime(v) {
+    if (!v) return '';
+    if (typeof v === 'number') {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
-
-    return null;
+    const s = String(v);
+    const hh = s.match(/(\d{1,2}):(\d{2})/);
+    if (hh) return `${pad(hh[1])}:${hh[2]}`;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  function isNoteVisibleInCurrentPeriod(note) {
-    const start = timeToMinutes(note.startTime);
-    const end = timeToMinutes(note.endTime || note.startTime);
-
-    const isCustom = document.querySelector('.period-btn.active')?.dataset?.period === 'custom';
-    const customContainer = $('customTimeContainer');
-
-    if (isCustom || (customContainer && customContainer.style.display !== 'none')) {
-      const s = $('customStartTime') ? timeToMinutes($('customStartTime').value || '00:00') : 0;
-      const e = $('customEndTime') ? timeToMinutes($('customEndTime').value || '23:59') : 1439;
-      return end >= s && start <= e;
+  function selectedRange() {
+    const active = qs('.period-btn.active, .period-option.active, [data-period].active');
+    const p = active ? String(active.getAttribute('data-period') || '').toLowerCase() : '24h';
+    if (p === 'custom') {
+      return { start: el('customStartTime')?.value || '00:00', end: el('customEndTime')?.value || '23:59' };
     }
-
-    return true;
-  }
-
-  function currentNotes() {
-    STATE.currentMachine = getSelectedMachine();
-    STATE.currentDate = getSelectedDate();
-
-    if (!STATE.currentMachine) return [];
-
-    const savedNotes = STATE.notes.filter(n =>
-      n.machine === STATE.currentMachine &&
-      normalizeDate(n.date) === STATE.currentDate &&
-      isNoteVisibleInCurrentPeriod(n)
-    );
-
-    const maintenanceNotes = getMaintenanceVirtualNotes();
-    if (maintenanceNotes.length) savedNotes.unshift(...maintenanceNotes);
-
-    return savedNotes;
-  }
-
-  function drawRoundedRect(ctx, x, y, w, h, r) {
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rr);
-    ctx.arcTo(x + w, y + h, x, y + h, rr);
-    ctx.arcTo(x, y + h, x, y, rr);
-    ctx.arcTo(x, y, x + w, y, rr);
-    ctx.closePath();
-  }
-
-  function forceTopPadding(chart) {
-    if (!chart || !chart.options) return;
-    chart.options.layout = chart.options.layout || {};
-    chart.options.layout.padding = chart.options.layout.padding || {};
-    const currentTop = Number(chart.options.layout.padding.top || 0);
-    // Reserva uma faixa superior exclusiva para as anotações.
-    // Isso evita conflito com o tooltip nativo dos pontos/quantidades.
-    chart.options.layout.padding.top = Math.max(currentTop, 58);
-  }
-
-  function getGlobalValue(name) {
-    try {
-      return Function(`return (typeof ${name} !== "undefined") ? ${name} : undefined`)();
-    } catch (_) {
-      return undefined;
-    }
-  }
-
-  function extractTimeFromAny(value) {
-    if (!value) return '';
-    if (typeof value === 'number') {
-      const d = new Date(value);
-      if (!Number.isNaN(d.getTime())) return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-      return '';
-    }
-
-    const text = String(value);
-    const hour = text.match(/(\d{1,2}):(\d{2})/);
-    if (hour) return `${pad2(hour[1])}:${hour[2]}`;
-
-    const parsed = new Date(text);
-    if (!Number.isNaN(parsed.getTime())) return `${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
-
-    return '';
-  }
-
-  function getField(obj, names) {
-    if (!obj) return undefined;
-    for (const name of names) {
-      if (obj[name] !== undefined && obj[name] !== null && obj[name] !== '') return obj[name];
-    }
-    return undefined;
-  }
-
-  function normalizeRowsFromSource(source, machine) {
-    if (!source) return [];
-
-    const direct = source[machine] || source[String(machine)];
-    let rows = [];
-
-    if (Array.isArray(direct)) rows = direct;
-    else if (direct && typeof direct === 'object') {
-      const looksLikeRecord =
-        getField(direct, ['startTime','horaInicio','inicio','maintenanceStart','startedAt','inicioManutencao','start','createdAt','timestamp']) ||
-        getField(direct, ['endTime','horaFim','fim','maintenanceEnd','endedAt','fimManutencao','end','returnedAt','retorno','returnTime']) ||
-        direct.isInMaintenance !== undefined ||
-        direct.emManutencao !== undefined ||
-        direct.status !== undefined;
-
-      rows = looksLikeRecord ? [direct] : Object.values(direct);
-    }
-
-    if (!rows.length && Array.isArray(source)) {
-      rows = source.filter(row => {
-        const rowMachine = getField(row, ['machine','maquina','machineId','idMaquina','nomeMaquina']);
-        return String(rowMachine || '') === String(machine);
-      });
-    }
-
-    return rows.filter(Boolean);
-  }
-
-  function recordIsMaintenance(row) {
-    if (!row) return false;
-    const status = String(getField(row, ['status','tipoStatus','state','estado']) || '').toLowerCase();
-    const type = String(getField(row, ['type','tipo','eventType','evento']) || '').toLowerCase();
-    const msg = String(getField(row, ['message','mensagem','reason','motivo','observacao','observação']) || '').toLowerCase();
-
-    return (
-      row.isInMaintenance === true ||
-      row.emManutencao === true ||
-      row.maintenance === true ||
-      row.manutencao === true ||
-      status.includes('maintenance') ||
-      status.includes('manut') ||
-      status.includes('parada') ||
-      type.includes('maintenance') ||
-      type.includes('manut') ||
-      msg.includes('manutenção') ||
-      msg.includes('manutencao') ||
-      msg.includes('corretiva')
-    );
-  }
-
-  function toMaintenanceInterval(row) {
-    if (!recordIsMaintenance(row)) return null;
-
-    const startRaw = getField(row, [
-      'startTime','horaInicio','inicio','maintenanceStart','startedAt',
-      'inicioManutencao','start','createdAt','timestamp','dataInicio'
-    ]);
-
-    const endRaw = getField(row, [
-      'endTime','horaFim','fim','maintenanceEnd','endedAt',
-      'fimManutencao','end','returnedAt','retorno','returnTime','dataFim'
-    ]);
-
-    const startTime = extractTimeFromAny(startRaw);
-    const endTime = extractTimeFromAny(endRaw);
-
-    return {
-      isInMaintenance: true,
-      reason: getField(row, ['reason','motivo','message','mensagem','observacao','observação','maintenanceReason']) || '',
-      type: getField(row, ['type','tipo']) || 'Manutenção corretiva',
-      startTime,
-      endTime,
-      raw: row
-    };
-  }
-
-  function getMaintenanceIntervals(machine) {
-    const sources = [
-      window.machineMaintenance,
-      window.maintenanceData,
-      window.allMachineMaintenance,
-      window.manutencoes,
-      window.maintenanceRecords,
-      window.maintenanceHistory,
-      window.historicoManutencao,
-      getGlobalValue('machineMaintenance'),
-      getGlobalValue('maintenanceData'),
-      getGlobalValue('allMachineMaintenance'),
-      getGlobalValue('manutencoes'),
-      getGlobalValue('maintenanceRecords'),
-      getGlobalValue('maintenanceHistory'),
-      getGlobalValue('historicoManutencao')
-    ].filter(Boolean);
-
-    let intervals = [];
-
-    for (const source of sources) {
-      normalizeRowsFromSource(source, machine).forEach(row => {
-        const interval = toMaintenanceInterval(row);
-        if (interval) intervals.push(interval);
-      });
-    }
-
-    const allAdminMachines = window.allAdminMachines || window.allMachinesData || getGlobalValue('allAdminMachines') || getGlobalValue('allMachinesData');
-    const machineData = allAdminMachines && (allAdminMachines[machine] || allAdminMachines[String(machine)]);
-    const directInterval = toMaintenanceInterval(machineData);
-    if (directInterval) intervals.push(directInterval);
-
-    // Remove duplicados simples
-    const seen = new Set();
-    intervals = intervals.filter(i => {
-      const key = `${i.startTime}|${i.endTime}|${i.reason}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    return intervals;
-  }
-
-  function getMaintenanceInfo(machine) {
-    const intervals = getMaintenanceIntervals(machine);
-    if (!intervals.length) return null;
-    intervals.sort((a, b) => timeToMinutes(a.startTime || '00:00') - timeToMinutes(b.startTime || '00:00'));
-    return intervals[intervals.length - 1];
-  }
-
-  function getVisibleRangeTimes() {
-    const isCustom = document.querySelector('.period-btn.active')?.dataset?.period === 'custom';
-    if (isCustom) {
-      return {
-        start: $('customStartTime')?.value || '00:00',
-        end: $('customEndTime')?.value || '23:59'
-      };
-    }
-
-    const active = document.querySelector('.period-btn.active, .period-option.active');
-    const period = active ? active.getAttribute('data-period') : '24h';
-
-    if (period === 'shift1' || period === 'turno1') return { start: '06:00', end: '14:00' };
-    if (period === 'shift2' || period === 'turno2') return { start: '14:00', end: '22:00' };
-    if (period === 'shift3' || period === 'turno3') return { start: '22:00', end: '06:00' };
-
+    if (p.includes('turno1') || p.includes('shift1')) return { start: '06:00', end: '14:00' };
+    if (p.includes('turno2') || p.includes('shift2')) return { start: '14:00', end: '22:00' };
+    if (p.includes('turno3') || p.includes('shift3')) return { start: '22:00', end: '06:00' };
     return { start: '00:00', end: '23:59' };
   }
 
-  function getMaintenanceVirtualNotes() {
-    const machine = getSelectedMachine();
-    const date = getSelectedDate();
-    if (!machine || !date) return [];
+  function getChart() {
+    const canvas = el('historyChart');
+    if (!canvas || !window.Chart) return null;
+    return Chart.getChart(canvas) || window.historyChart || state.chart || null;
+  }
 
-    const intervals = getMaintenanceIntervals(machine);
-    if (!intervals.length) return [];
+  function xScale(chart) {
+    if (!chart || !chart.scales) return null;
+    return chart.scales.x || Object.values(chart.scales).find(s => s.axis === 'x');
+  }
 
-    const range = getVisibleRangeTimes();
+  function labelHour(label) {
+    const m = String(label ?? '').match(/(\d{1,2}):(\d{2})/);
+    return m ? Number(m[1]) + Number(m[2]) / 60 : null;
+  }
 
-    return intervals.map((info, index) => {
-      const startTime = info.startTime || range.start || '00:00';
-      const endTime = info.endTime || range.end || '23:59';
+  function pixelForHour(chart, hour) {
+    const xs = xScale(chart);
+    if (!xs) return NaN;
 
-      return {
-        id: `maintenance_${machine}_${date}_${index}`,
-        machine,
-        date,
-        startTime,
-        endTime,
-        message: `PARADA PARA MANUTENÇÃO CORRETIVA${info.reason ? '
-Motivo: ' + info.reason : ''}`,
-        author: 'Sistema',
-        updatedAtText: info.endTime ? 'Período registrado' : 'Em manutenção no momento',
-        __maintenance: true,
-        __gantt: true
-      };
+    let px = xs.getPixelForValue(hour);
+    if (Number.isFinite(px) && px >= xs.left - 80 && px <= xs.right + 80) return px;
+
+    const labels = chart.data?.labels || [];
+    if (labels.length) {
+      let best = 0, diff = Infinity;
+      labels.forEach((lab, i) => {
+        const h = labelHour(lab);
+        if (h == null) return;
+        const d = Math.abs(h - hour);
+        if (d < diff) { diff = d; best = i; }
+      });
+      px = xs.getPixelForValue(best);
+    }
+    return px;
+  }
+
+  function path() {
+    const m = getMachine();
+    const d = getDate();
+    return `${ROOT}/${safeKey(m)}/${d}`;
+  }
+
+  function hasFirebase() {
+    return !!(window.firebase && firebase.database);
+  }
+
+  function localKey() {
+    return `wmoldes_notes_${safeKey(getMachine())}_${getDate()}`;
+  }
+  function loadLocal() {
+    try { return JSON.parse(localStorage.getItem(localKey()) || '[]'); } catch { return []; }
+  }
+  function saveLocal(rows) {
+    localStorage.setItem(localKey(), JSON.stringify(rows));
+  }
+
+  function updateButton() {
+    const bar = el('historyNotesToolbar');
+    if (!bar) return;
+    const ok = !!getMachine();
+    bar.style.display = ok ? 'flex' : 'none';
+    bar.classList.toggle('is-disabled', !ok);
+  }
+
+  function loadNotes() {
+    updateButton();
+    const m = getMachine();
+    if (!m) {
+      state.notes = [];
+      redraw();
+      return;
+    }
+
+    if (!hasFirebase()) {
+      state.notes = loadLocal();
+      redraw();
+      return;
+    }
+
+    const p = path();
+    if (state.subscribedPath && state.subscribedPath !== p) {
+      firebase.database().ref(state.subscribedPath).off();
+    }
+    state.subscribedPath = p;
+
+    firebase.database().ref(p).off();
+    firebase.database().ref(p).on('value', snap => {
+      const val = snap.val() || {};
+      state.notes = Object.keys(val).map(id => ({ id, machine: m, date: getDate(), ...val[id] }));
+      redraw();
     });
   }
 
-  const chartNotesPlugin = {
-    id: 'wmoldesHistoryNotes',
-    beforeInit(chart) {
-      forceTopPadding(chart);
-    },
-    beforeUpdate(chart) {
-      forceTopPadding(chart);
-    },
+  function fields(obj, names) {
+    if (!obj) return undefined;
+    for (const n of names) if (obj[n] !== undefined && obj[n] !== null && obj[n] !== '') return obj[n];
+    return undefined;
+  }
+
+  function maintenanceRowsFrom(source, machine) {
+    if (!source) return [];
+    const direct = source[machine] || source[String(machine)];
+    if (Array.isArray(direct)) return direct;
+    if (direct && typeof direct === 'object') {
+      const looksRecord = fields(direct, ['status','isInMaintenance','emManutencao','startTime','horaInicio','startedAt','endTime','horaFim','endedAt','createdAt']);
+      return looksRecord ? [direct] : Object.values(direct);
+    }
+    if (Array.isArray(source)) {
+      return source.filter(r => String(fields(r, ['machine','maquina','machineId','nomeMaquina']) || '') === String(machine));
+    }
+    return [];
+  }
+
+  function isMaintenance(row) {
+    const status = String(fields(row, ['status','state','estado','tipoStatus']) || '').toLowerCase();
+    const type = String(fields(row, ['type','tipo','eventType','evento']) || '').toLowerCase();
+    const msg = String(fields(row, ['message','mensagem','reason','motivo','observacao','observação']) || '').toLowerCase();
+    return row?.isInMaintenance === true || row?.emManutencao === true || row?.maintenance === true || row?.manutencao === true ||
+      status.includes('manut') || status.includes('maintenance') || status.includes('parada') ||
+      type.includes('manut') || type.includes('maintenance') ||
+      msg.includes('manutenção') || msg.includes('manutencao') || msg.includes('corretiva');
+  }
+
+  function maintenanceIntervals() {
+    const machine = getMachine();
+    if (!machine) return [];
+
+    const sources = [
+      window.machineMaintenance, window.maintenanceData, window.allMachineMaintenance,
+      window.manutencoes, window.maintenanceRecords, window.maintenanceHistory, window.historicoManutencao,
+      window.allAdminMachines, window.allMachinesData
+    ].filter(Boolean);
+
+    const rows = [];
+    sources.forEach(src => maintenanceRowsFrom(src, machine).forEach(r => rows.push(r)));
+
+    const intervals = rows.filter(isMaintenance).map((r, i) => {
+      const start = extractTime(fields(r, ['startTime','horaInicio','inicio','maintenanceStart','startedAt','inicioManutencao','start','createdAt','timestamp','dataInicio']));
+      const end = extractTime(fields(r, ['endTime','horaFim','fim','maintenanceEnd','endedAt','fimManutencao','end','returnedAt','retorno','returnTime','dataFim']));
+      const range = selectedRange();
+      return {
+        id: `maintenance_${i}_${start}_${end}`,
+        machine,
+        date: getDate(),
+        startTime: start || range.start,
+        endTime: end || range.end,
+        message: `PARADA PARA MANUTENÇÃO CORRETIVA${fields(r, ['reason','motivo','message','mensagem','observacao','observação']) ? '\nMotivo: ' + fields(r, ['reason','motivo','message','mensagem','observacao','observação']) : ''}`,
+        author: 'Sistema',
+        updatedAtText: end ? 'Período registrado' : 'Em manutenção no momento',
+        maintenance: true
+      };
+    });
+
+    // Dedup
+    const seen = new Set();
+    return intervals.filter(i => {
+      const k = `${i.startTime}|${i.endTime}|${i.message}`;
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+  }
+
+  function visibleNotes() {
+    const m = getMachine();
+    if (!m) return [];
+    const d = getDate();
+    const range = selectedRange();
+    const rs = timeToMin(range.start), re = timeToMin(range.end);
+
+    const saved = state.notes.filter(n => {
+      const s = timeToMin(n.startTime), e = timeToMin(n.endTime || n.startTime);
+      return String(n.machine || m) === String(m) && normalizeDate(n.date || d) === d && e >= rs && s <= re;
+    });
+
+    return [...maintenanceIntervals(), ...saved];
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  function forcePadding(chart) {
+    chart.options.layout = chart.options.layout || {};
+    chart.options.layout.padding = chart.options.layout.padding || {};
+    chart.options.layout.padding.top = Math.max(Number(chart.options.layout.padding.top || 0), 72);
+  }
+
+  const plugin = {
+    id: 'wmoldesNotesPlugin',
+    beforeInit(chart) { forcePadding(chart); },
+    beforeUpdate(chart) { forcePadding(chart); },
     afterDatasetsDraw(chart) {
-      const xScale = getScaleX(chart);
-      const yScale = getScaleY(chart);
-      if (!xScale || !yScale) return;
+      state.chart = chart;
+      const xs = xScale(chart);
+      if (!xs || !chart.chartArea) return;
 
       const ctx = chart.ctx;
-      const baseY = Math.max(8, chart.chartArea.top - 50);
-      const notes = currentNotes();
+      const top = Math.max(8, chart.chartArea.top - 62);
+      const notes = visibleNotes();
       const occupied = [];
 
-      STATE.chart = chart;
-
       notes.forEach(note => {
-        const x = getPixelForNote(chart, note);
-        if (!Number.isFinite(x)) return;
+        const startH = minToHour(timeToMin(note.startTime));
+        const endH = minToHour(timeToMin(note.endTime || note.startTime));
+        const startX = pixelForHour(chart, startH);
+        const endX = pixelForHour(chart, endH);
+        const midX = pixelForHour(chart, (startH + endH) / 2);
+        if (!Number.isFinite(midX)) return;
 
-        const startValue = minutesToDecimalHour(timeToMinutes(note.startTime));
-        const endValue = minutesToDecimalHour(timeToMinutes(note.endTime || note.startTime));
-        const startXRaw = getScaleX(chart).getPixelForValue(startValue);
-        const endXRaw = getScaleX(chart).getPixelForValue(endValue);
-        const hasRange = note.__gantt && Number.isFinite(startXRaw) && Number.isFinite(endXRaw) && Math.abs(endXRaw - startXRaw) > 8;
+        if (note.maintenance) {
+          let left = Math.max(chart.chartArea.left + 4, Math.min(startX, endX));
+          let right = Math.min(chart.chartArea.right - 4, Math.max(startX, endX));
+          if (!Number.isFinite(left) || !Number.isFinite(right) || right - left < 12) {
+            left = Math.max(chart.chartArea.left + 4, midX - 40);
+            right = Math.min(chart.chartArea.right - 4, midX + 40);
+          }
+          const w = Math.max(18, right - left);
+          const y = top;
+          const h = 20;
+          note.__hit = { x: left, y, w, h };
 
-        const w = hasRange ? Math.max(28, Math.abs(endXRaw - startXRaw)) : (note.__maintenance ? 46 : 32);
-        const h = note.__maintenance ? 18 : 24;
-
-        let left = hasRange
-          ? Math.max(chart.chartArea.left + 4, Math.min(Math.min(startXRaw, endXRaw), chart.chartArea.right - 4))
-          : Math.max(chart.chartArea.left + 4, Math.min(x - w / 2, chart.chartArea.right - w - 4));
-
-        const rightLimit = chart.chartArea.right - 4;
-        const finalW = hasRange ? Math.max(22, Math.min(w, rightLimit - left)) : w;
-
-        let row = 0;
-        while (occupied.some(box => Math.abs(box.x - x) < 38 && box.row === row)) row++;
-        row = Math.min(row, 1);
-
-        const y = note.__maintenance ? (baseY + row * 24) : (baseY + 30 + row * 28);
-        occupied.push({ x, row });
-
-        note.__hit = { x: left, y, w: finalW, h, cx: x };
-
-        ctx.save();
-
-        if (note.__maintenance) {
-          // Faixa tipo Gantt: começa no horário em que entrou em manutenção e termina no horário de retorno.
-          ctx.fillStyle = 'rgba(100, 116, 139, 0.20)';
-          drawRoundedRect(ctx, left, y, finalW, h, 8);
+          ctx.save();
+          ctx.fillStyle = 'rgba(100,116,139,.22)';
+          roundRect(ctx, left, y, w, h, 9);
           ctx.fill();
-
           ctx.strokeStyle = '#64748b';
-          ctx.lineWidth = 1.2;
-          drawRoundedRect(ctx, left, y, finalW, h, 8);
+          ctx.lineWidth = 1.3;
+          roundRect(ctx, left, y, w, h, 9);
           ctx.stroke();
 
-          ctx.fillStyle = '#475569';
-          ctx.font = '700 11px system-ui, -apple-system, Segoe UI, sans-serif';
+          ctx.fillStyle = '#334155';
+          ctx.font = '700 11px system-ui,-apple-system,Segoe UI,sans-serif';
           ctx.textBaseline = 'middle';
-          const label = finalW > 120 ? 'Manutenção corretiva' : 'Manutenção';
-          ctx.fillText(label, left + 10, y + h / 2);
+          ctx.fillText(w > 135 ? 'Manutenção corretiva' : 'Manutenção', left + 10, y + h/2);
 
-          // Linhas verticais de início/fim
-          ctx.strokeStyle = 'rgba(71, 85, 105, 0.42)';
-          ctx.setLineDash([4, 5]);
+          ctx.strokeStyle = 'rgba(71,85,105,.35)';
+          ctx.setLineDash([4,5]);
           ctx.beginPath();
-          ctx.moveTo(left, y + h + 3);
-          ctx.lineTo(left, chart.chartArea.bottom);
-          ctx.moveTo(left + finalW, y + h + 3);
-          ctx.lineTo(left + finalW, chart.chartArea.bottom);
+          ctx.moveTo(left, y+h+3); ctx.lineTo(left, chart.chartArea.bottom);
+          ctx.moveTo(right, y+h+3); ctx.lineTo(right, chart.chartArea.bottom);
           ctx.stroke();
-          ctx.setLineDash([]);
-
           ctx.restore();
           return;
         }
 
-        // Linha vertical suave até o eixo do gráfico, indicando exatamente o horário.
-        ctx.strokeStyle = 'rgba(245, 158, 11, 0.34)';
+        let row = 0;
+        while (occupied.some(o => Math.abs(o.x - midX) < 38 && o.row === row)) row++;
+        row = Math.min(row, 1);
+        occupied.push({ x: midX, row });
+
+        const w = 32, h = 24;
+        const left = Math.max(chart.chartArea.left + 4, Math.min(midX - w/2, chart.chartArea.right - w - 4));
+        const y = top + 28 + row * 28;
+        note.__hit = { x: left, y, w, h };
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(245,158,11,.32)';
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 5]);
+        ctx.setLineDash([4,5]);
         ctx.beginPath();
-        ctx.moveTo(x, y + h + 4);
-        ctx.lineTo(x, chart.chartArea.bottom);
+        ctx.moveTo(midX, y+h+4);
+        ctx.lineTo(midX, chart.chartArea.bottom);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Bloco de notas
-        ctx.shadowColor = 'rgba(15, 23, 42, 0.20)';
+        ctx.shadowColor = 'rgba(15,23,42,.22)';
         ctx.shadowBlur = 10;
         ctx.shadowOffsetY = 4;
         ctx.fillStyle = '#fbbf24';
-        drawRoundedRect(ctx, left, y, w, h, 7);
+        roundRect(ctx, left, y, w, h, 7);
         ctx.fill();
 
-        // Borda
         ctx.shadowColor = 'transparent';
         ctx.strokeStyle = '#d97706';
         ctx.lineWidth = 1;
-        drawRoundedRect(ctx, left, y, w, h, 7);
+        roundRect(ctx, left, y, w, h, 7);
         ctx.stroke();
 
-        // Linhas internas estilo bloco de notas
         ctx.strokeStyle = '#78350f';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(left + 9, y + 8);
-        ctx.lineTo(left + 23, y + 8);
-        ctx.moveTo(left + 9, y + 12);
-        ctx.lineTo(left + 21, y + 12);
-        ctx.moveTo(left + 9, y + 16);
-        ctx.lineTo(left + 18, y + 16);
+        ctx.moveTo(left+9, y+8); ctx.lineTo(left+23, y+8);
+        ctx.moveTo(left+9, y+12); ctx.lineTo(left+21, y+12);
+        ctx.moveTo(left+9, y+16); ctx.lineTo(left+18, y+16);
         ctx.stroke();
-
         ctx.restore();
       });
     }
@@ -561,505 +396,305 @@ Motivo: ' + info.reason : ''}`,
 
   function registerPlugin() {
     if (!window.Chart) return;
-    const already = Chart.registry && Chart.registry.plugins && Chart.registry.plugins.get && Chart.registry.plugins.get('wmoldesHistoryNotes');
-    if (!already) Chart.register(chartNotesPlugin);
+    try {
+      if (!Chart.registry.plugins.get('wmoldesNotesPlugin')) Chart.register(plugin);
+    } catch {
+      try { Chart.register(plugin); } catch {}
+    }
   }
 
-  function getChartInstance() {
-    const canvas = $('historyChart');
-    if (!canvas || !window.Chart) return null;
-    return Chart.getChart(canvas) || STATE.chart || null;
-  }
-
-  function updateChart() {
+  function redraw() {
+    updateButton();
     registerPlugin();
-    const chart = getChartInstance();
-    if (chart) {
-      STATE.chart = chart;
-      try { chart.update('none'); } catch (_) { chart.draw(); }
+    const c = getChart();
+    if (c) {
+      state.chart = c;
+      try { c.update('none'); } catch { try { c.draw(); } catch {} }
     }
   }
 
-  function ensureTooltip() {
-    if (STATE.tooltipEl) return STATE.tooltipEl;
-    const el = document.createElement('div');
-    el.className = 'history-note-tooltip';
-    el.style.display = 'none';
-    document.body.appendChild(el);
-    STATE.tooltipEl = el;
-    return el;
+  function tooltipEl() {
+    if (state.tooltip) return state.tooltip;
+    const t = document.createElement('div');
+    t.className = 'history-note-tooltip';
+    t.style.display = 'none';
+    document.body.appendChild(t);
+    state.tooltip = t;
+    return t;
   }
 
-  function showTooltip(note, evt) {
-    const el = ensureTooltip();
-    if (!note) {
-      el.style.display = 'none';
-      STATE.hoverNote = null;
-      return;
-    }
+  function hitNote(evt) {
+    const c = getChart();
+    if (!c || !c.canvas) return null;
+    const rect = c.canvas.getBoundingClientRect();
+    const sx = c.canvas.width / rect.width;
+    const sy = c.canvas.height / rect.height;
+    const x = (evt.clientX - rect.left) * sx;
+    const y = (evt.clientY - rect.top) * sy;
+    const notes = visibleNotes();
 
-    STATE.hoverNote = note;
-    el.innerHTML = `
-      <div class="history-note-tooltip-time ${note.__maintenance ? 'maintenance' : ''}">${escapeHtml(note.startTime)} - ${escapeHtml(note.endTime || note.startTime)}</div>
-      <div class="history-note-tooltip-message">${escapeHtml(note.message || '')}</div>
-      <div class="history-note-tooltip-meta">${escapeHtml(note.author || 'Usuário')} • ${escapeHtml(note.updatedAtText || note.createdAtText || '')}</div>
-      <div class="history-note-tooltip-actions">${note.__maintenance ? 'Informação automática do status da máquina' : 'Clique para editar/remover'}</div>
-    `;
-
-    const offset = 14;
-    let left = evt.clientX + offset;
-    let top = evt.clientY + offset;
-
-    el.style.display = 'block';
-    const rect = el.getBoundingClientRect();
-
-    if (left + rect.width > window.innerWidth - 12) left = evt.clientX - rect.width - offset;
-    if (top + rect.height > window.innerHeight - 12) top = evt.clientY - rect.height - offset;
-
-    el.style.left = `${Math.max(12, left)}px`;
-    el.style.top = `${Math.max(12, top)}px`;
-  }
-
-  function escapeHtml(value) {
-    return String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
-  }
-
-  function findNoteAtEvent(evt) {
-    const chart = getChartInstance();
-    if (!chart) return null;
-
-    const canvas = chart.canvas;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (evt.clientX - rect.left) * scaleX;
-    const y = (evt.clientY - rect.top) * scaleY;
-
-    const notes = currentNotes();
     for (let i = notes.length - 1; i >= 0; i--) {
       const h = notes[i].__hit;
       if (!h) continue;
-      if (x >= h.x - 4 && x <= h.x + h.w + 4 && y >= h.y - 4 && y <= h.y + h.h + 4) return notes[i];
+      if (x >= h.x - 5 && x <= h.x + h.w + 5 && y >= h.y - 5 && y <= h.y + h.h + 5) return notes[i];
     }
-
-    // fallback: if user is close to vertical line near the top
-    for (let i = notes.length - 1; i >= 0; i--) {
-      const h = notes[i].__hit;
-      if (!h) continue;
-      if (Math.abs(x - h.cx) <= 8 && y >= chart.chartArea.top && y <= chart.chartArea.top + 60) return notes[i];
-    }
-
     return null;
   }
 
-  function setupCanvasEvents() {
-    const canvas = $('historyChart');
-    if (!canvas || canvas.__historyNotesEventsBound) return;
-    canvas.__historyNotesEventsBound = true;
+  function showTooltip(note, evt) {
+    const t = tooltipEl();
+    if (!note) {
+      t.style.display = 'none';
+      return;
+    }
+    t.innerHTML = `
+      <div class="history-note-tooltip-time ${note.maintenance ? 'maintenance' : ''}">${esc(note.startTime)} - ${esc(note.endTime || note.startTime)}</div>
+      <div class="history-note-tooltip-message">${esc(note.message)}</div>
+      <div class="history-note-tooltip-meta">${esc(note.author || 'Usuário')} • ${esc(note.updatedAtText || note.createdAtText || '')}</div>
+      <div class="history-note-tooltip-actions">${note.maintenance ? 'Faixa automática de manutenção' : 'Clique para editar/remover'}</div>
+    `;
+    t.style.display = 'block';
+    let l = evt.clientX + 14, top = evt.clientY + 14;
+    const r = t.getBoundingClientRect();
+    if (l + r.width > window.innerWidth - 12) l = evt.clientX - r.width - 14;
+    if (top + r.height > window.innerHeight - 12) top = evt.clientY - r.height - 14;
+    t.style.left = Math.max(12, l) + 'px';
+    t.style.top = Math.max(12, top) + 'px';
+  }
 
-    canvas.addEventListener('mousemove', (evt) => {
-      const note = findNoteAtEvent(evt);
-      canvas.style.cursor = note ? 'pointer' : '';
-      showTooltip(note, evt);
+  function bindCanvas() {
+    const canvas = el('historyChart');
+    if (!canvas || canvas.__wmNotesBound) return;
+    canvas.__wmNotesBound = true;
+    canvas.addEventListener('mousemove', evt => {
+      const n = hitNote(evt);
+      canvas.style.cursor = n ? 'pointer' : '';
+      showTooltip(n, evt);
     });
-
     canvas.addEventListener('mouseleave', () => showTooltip(null));
-
-    canvas.addEventListener('click', (evt) => {
-      const note = findNoteAtEvent(evt);
-      if (note && !note.__maintenance) openModal(note);
+    canvas.addEventListener('click', evt => {
+      const n = hitNote(evt);
+      if (n && !n.maintenance) openModal(n);
     });
   }
 
-  function updateToolbarVisibility() {
-    const toolbar = $('historyNotesToolbar');
-    if (!toolbar) return;
-
-    const machine = getSelectedMachine();
-    const show = !!machine;
-
-    toolbar.style.display = show ? 'flex' : 'none';
-    toolbar.classList.toggle('is-disabled', !show);
-  }
-
-  function destroyExistingHistoryChartBeforeReload() {
-    const canvas = $('historyChart');
-    if (!canvas || !window.Chart) return;
-
-    const existing = Chart.getChart(canvas);
-    if (existing) {
-      try { existing.destroy(); } catch (err) { console.warn('Não foi possível destruir gráfico anterior:', err); }
-    }
-
-    // Alguns arquivos antigos guardam a instância em variáveis globais.
-    // Limpar as mais comuns evita o erro "Canvas is already in use".
-    try {
-      if (window.historyChart && typeof window.historyChart.destroy === 'function') {
-        window.historyChart.destroy();
-      }
-      window.historyChart = null;
-    } catch (_) {}
-  }
-
-  function getDbRef() {
-    if (!window.firebase || !firebase.database) return null;
-    try {
-      return firebase.database().ref(FIREBASE_ROOT);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function formatNow() {
+  function defaultStart() {
     const d = new Date();
-    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes()/5)*5)}`;
   }
-
-  function firebasePath(machine, date) {
-    const safeMachine = String(machine || 'sem-maquina').replace(/[.#$/\[\]]/g, '_');
-    const safeDate = normalizeDate(date);
-    return `${FIREBASE_ROOT}/${safeMachine}/${safeDate}`;
-  }
-
-  function listenNotes() {
-    const db = getDbRef();
-    STATE.currentMachine = getSelectedMachine();
-    STATE.currentDate = getSelectedDate();
-
-    if (!STATE.currentMachine || !STATE.currentDate) {
-      STATE.notes = [];
-      updateChart();
-      return;
-    }
-
-    if (!db) {
-      STATE.notes = loadLocalNotes();
-      updateChart();
-      return;
-    }
-
-    const path = firebasePath(STATE.currentMachine, STATE.currentDate);
-    firebase.database().ref(path).off();
-    firebase.database().ref(path).on('value', (snap) => {
-      const rows = snap.val() || {};
-      STATE.notes = Object.keys(rows).map(id => ({
-        id,
-        machine: STATE.currentMachine,
-        date: STATE.currentDate,
-        ...rows[id]
-      }));
-      STATE.noteById = new Map(STATE.notes.map(n => [n.id, n]));
-      updateChart();
-    });
-  }
-
-  function localStorageKey(machine, date) {
-    return `wmoldes_history_notes_${machine}_${normalizeDate(date)}`;
-  }
-
-  function loadLocalNotes() {
-    const machine = getSelectedMachine();
-    const date = getSelectedDate();
-    try {
-      return JSON.parse(localStorage.getItem(localStorageKey(machine, date)) || '[]');
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function saveLocalNotes(notes) {
-    const machine = getSelectedMachine();
-    const date = getSelectedDate();
-    localStorage.setItem(localStorageKey(machine, date), JSON.stringify(notes));
+  function defaultEnd() {
+    const d = new Date(Date.now()+30*60000);
+    return `${pad(d.getHours())}:${pad(Math.floor(d.getMinutes()/5)*5)}`;
   }
 
   function openModal(note) {
-    const machine = getSelectedMachine();
-    const date = getSelectedDate();
-
-    if (!machine) {
+    const m = getMachine();
+    if (!m) {
       alert('Selecione uma máquina antes de criar uma anotação.');
+      updateButton();
       return;
     }
 
-    const modal = $('historyNoteModalBackdrop');
-    if (!modal) return;
+    const modal = el('historyNoteModalBackdrop');
+    if (!modal) {
+      alert('Modal de anotação não encontrado no admin.html.');
+      return;
+    }
 
-    $('historyNoteId').value = note ? note.id : '';
-    $('historyNoteDate').value = normalizeDate(note ? note.date : date);
-    $('historyNoteStart').value = note ? note.startTime : defaultStartTime();
-    $('historyNoteEnd').value = note ? (note.endTime || note.startTime) : defaultEndTime();
-    $('historyNoteMessage').value = note ? (note.message || '') : '';
+    el('historyNoteId').value = note?.id || '';
+    el('historyNoteDate').value = normalizeDate(note?.date || getDate());
+    el('historyNoteStart').value = note?.startTime || defaultStart();
+    el('historyNoteEnd').value = note?.endTime || defaultEnd();
+    el('historyNoteMessage').value = note?.message || '';
 
-    const del = $('historyNoteDeleteBtn');
+    const del = el('historyNoteDeleteBtn');
     if (del) del.style.display = note ? 'inline-flex' : 'none';
 
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
-    setTimeout(() => $('historyNoteMessage') && $('historyNoteMessage').focus(), 50);
+    setTimeout(() => el('historyNoteMessage')?.focus(), 50);
   }
 
   function closeModal() {
-    const modal = $('historyNoteModalBackdrop');
+    const modal = el('historyNoteModalBackdrop');
     if (!modal) return;
     modal.classList.remove('active');
     modal.setAttribute('aria-hidden', 'true');
   }
 
-  function defaultStartTime() {
-    const d = new Date();
-    return `${pad2(d.getHours())}:${pad2(Math.floor(d.getMinutes() / 5) * 5)}`;
-  }
-
-  function defaultEndTime() {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() + 30);
-    return `${pad2(d.getHours())}:${pad2(Math.floor(d.getMinutes() / 5) * 5)}`;
-  }
-
   async function saveNote() {
-    const machine = getSelectedMachine();
-    const selectedDate = normalizeDate($('historyNoteDate').value || getSelectedDate());
-    const startTime = $('historyNoteStart').value;
-    const endTime = $('historyNoteEnd').value;
-    const message = ($('historyNoteMessage').value || '').trim();
-    const id = $('historyNoteId').value;
+    const m = getMachine();
+    const d = normalizeDate(el('historyNoteDate')?.value || getDate());
+    const startTime = el('historyNoteStart')?.value || '';
+    const endTime = el('historyNoteEnd')?.value || '';
+    const message = String(el('historyNoteMessage')?.value || '').trim();
+    const id = el('historyNoteId')?.value || '';
 
-    if (!machine) return alert('Selecione uma máquina.');
-    if (!selectedDate) return alert('Selecione a data.');
-    if (!startTime || !endTime) return alert('Informe o horário inicial e final.');
-    if (timeToMinutes(endTime) < timeToMinutes(startTime)) return alert('O horário final não pode ser menor que o inicial.');
-    if (!message) return alert('Digite a mensagem da anotação.');
+    if (!m) return alert('Selecione uma máquina.');
+    if (!d) return alert('Selecione a data.');
+    if (!startTime || !endTime) return alert('Informe horário inicial e final.');
+    if (timeToMin(endTime) < timeToMin(startTime)) return alert('O horário final não pode ser menor que o inicial.');
+    if (!message) return alert('Digite a mensagem.');
 
-    const emailEl = $('currentUserEmail');
-    const author = emailEl && emailEl.textContent && emailEl.textContent !== 'Carregando...' ? emailEl.textContent : STATE.userEmail || 'Usuário';
-
+    const authorText = el('currentUserEmail')?.textContent || 'Usuário';
     const payload = {
-      machine,
-      date: selectedDate,
-      startTime,
-      endTime,
-      message,
-      author,
-      updatedAt: Date.now(),
-      updatedAtText: formatNow()
+      machine: m, date: d, startTime, endTime, message,
+      author: authorText === 'Carregando...' ? 'Usuário' : authorText,
+      updatedAt: Date.now(), updatedAtText: nowText()
     };
 
-    const db = getDbRef();
-
-    if (db) {
-      const baseRef = firebase.database().ref(firebasePath(machine, selectedDate));
-      if (id) {
-        const original = STATE.noteById.get(id);
-        if (original && normalizeDate(original.date) !== selectedDate) {
-          await firebase.database().ref(firebasePath(machine, original.date)).child(id).remove();
-          await baseRef.push({ ...payload, createdAt: Date.now(), createdAtText: formatNow() });
-        } else {
-          await baseRef.child(id).update(payload);
-        }
-      } else {
-        await baseRef.push({ ...payload, createdAt: Date.now(), createdAtText: formatNow() });
-      }
+    if (hasFirebase()) {
+      const base = firebase.database().ref(`${ROOT}/${safeKey(m)}/${d}`);
+      if (id) await base.child(id).update(payload);
+      else await base.push({ ...payload, createdAt: Date.now(), createdAtText: nowText() });
     } else {
-      const local = loadLocalNotes();
+      const rows = loadLocal();
       if (id) {
-        const idx = local.findIndex(n => n.id === id);
-        if (idx >= 0) local[idx] = { ...local[idx], ...payload };
-      } else {
-        local.push({ id: `local_${Date.now()}`, ...payload, createdAt: Date.now(), createdAtText: formatNow() });
-      }
-      saveLocalNotes(local);
-      STATE.notes = local;
-      updateChart();
+        const ix = rows.findIndex(r => r.id === id);
+        if (ix >= 0) rows[ix] = { ...rows[ix], ...payload };
+      } else rows.push({ id: `local_${Date.now()}`, ...payload, createdAt: Date.now(), createdAtText: nowText() });
+      saveLocal(rows);
+      state.notes = rows;
     }
 
     closeModal();
-
-    // if selected different date, update select if possible
-    const dateSelect = $('historyDate');
-    if (dateSelect && dateSelect.value !== selectedDate) {
-      const option = Array.from(dateSelect.options || []).find(o => normalizeDate(o.value || o.textContent) === selectedDate);
-      if (option) {
-        dateSelect.value = option.value;
-      }
-    }
-
-    listenNotes();
+    loadNotes();
   }
 
   async function deleteNote() {
-    const id = $('historyNoteId').value;
+    const id = el('historyNoteId')?.value || '';
     if (!id) return;
     if (!confirm('Remover esta anotação?')) return;
 
-    const machine = getSelectedMachine();
-    const note = STATE.noteById.get(id) || STATE.notes.find(n => n.id === id);
-    const date = normalizeDate(note ? note.date : getSelectedDate());
+    const m = getMachine();
+    const d = getDate();
 
-    const db = getDbRef();
-    if (db) {
-      await firebase.database().ref(firebasePath(machine, date)).child(id).remove();
+    if (hasFirebase()) {
+      await firebase.database().ref(`${ROOT}/${safeKey(m)}/${d}`).child(id).remove();
     } else {
-      const local = loadLocalNotes().filter(n => n.id !== id);
-      saveLocalNotes(local);
-      STATE.notes = local;
-      updateChart();
+      const rows = loadLocal().filter(r => r.id !== id);
+      saveLocal(rows);
+      state.notes = rows;
     }
-
     closeModal();
-    listenNotes();
+    loadNotes();
   }
 
-  function patchHistoryLoad() {
-    const original = window.loadHistoryChart;
-    if (typeof original === 'function' && !original.__notesPatched) {
+  function destroyBeforeReload() {
+    const canvas = el('historyChart');
+    if (!canvas || !window.Chart) return;
+    const c = Chart.getChart(canvas);
+    if (c) {
+      try { c.destroy(); } catch {}
+    }
+    try {
+      if (window.historyChart && typeof window.historyChart.destroy === 'function') window.historyChart.destroy();
+      window.historyChart = null;
+    } catch {}
+  }
+
+  function patchLoad() {
+    if (typeof window.loadHistoryChart === 'function' && !window.loadHistoryChart.__wmNotesPatched) {
+      const original = window.loadHistoryChart;
       const patched = function () {
-        updateToolbarVisibility();
-        destroyExistingHistoryChartBeforeReload();
-
+        updateButton();
+        destroyBeforeReload();
         const result = original.apply(this, arguments);
-
-        setTimeout(() => {
-          setupCanvasEvents();
-          listenNotes();
-          updateToolbarVisibility();
-          updateChart();
-        }, 250);
-
-        setTimeout(() => {
-          updateToolbarVisibility();
-          updateChart();
-        }, 900);
-
+        setTimeout(() => { bindCanvas(); loadNotes(); redraw(); }, 250);
+        setTimeout(() => { updateButton(); redraw(); }, 900);
         return result;
       };
-      patched.__notesPatched = true;
+      patched.__wmNotesPatched = true;
       window.loadHistoryChart = patched;
     }
 
-    const originalSetPeriod = window.setPeriod;
-    if (typeof originalSetPeriod === 'function' && !originalSetPeriod.__notesPatched) {
-      const patchedPeriod = function () {
-        const result = originalSetPeriod.apply(this, arguments);
-        setTimeout(updateChart, 150);
-        return result;
-      };
-      patchedPeriod.__notesPatched = true;
-      window.setPeriod = patchedPeriod;
-    }
-
-    const originalApply = window.applyCustomPeriod;
-    if (typeof originalApply === 'function' && !originalApply.__notesPatched) {
-      const patchedApply = function () {
-        const result = originalApply.apply(this, arguments);
-        setTimeout(updateChart, 150);
-        return result;
-      };
-      patchedApply.__notesPatched = true;
-      window.applyCustomPeriod = patchedApply;
-    }
+    ['setPeriod','applyCustomPeriod','toggleChartType'].forEach(name => {
+      if (typeof window[name] === 'function' && !window[name].__wmNotesPatched) {
+        const original = window[name];
+        const patched = function () {
+          const result = original.apply(this, arguments);
+          setTimeout(() => { updateButton(); redraw(); }, 150);
+          return result;
+        };
+        patched.__wmNotesPatched = true;
+        window[name] = patched;
+      }
+    });
   }
 
-  function bindUi() {
-    updateToolbarVisibility();
-
-    const addBtn = $('historyNoteAddBtn');
-    if (addBtn && !addBtn.__historyNoteBound) {
-      addBtn.__historyNoteBound = true;
-      addBtn.addEventListener('click', (evt) => {
+  function bindUI() {
+    const add = el('historyNoteAddBtn');
+    if (add && !add.__wmBound) {
+      add.__wmBound = true;
+      add.addEventListener('click', evt => {
         evt.preventDefault();
         openModal(null);
       });
     }
-    $('historyNoteCloseBtn')?.addEventListener('click', closeModal);
-    $('historyNoteCancelBtn')?.addEventListener('click', closeModal);
-    $('historyNoteSaveBtn')?.addEventListener('click', saveNote);
-    $('historyNoteDeleteBtn')?.addEventListener('click', deleteNote);
 
-    $('historyNoteModalBackdrop')?.addEventListener('click', (evt) => {
-      if (evt.target === $('historyNoteModalBackdrop')) closeModal();
+    el('historyNoteCloseBtn')?.addEventListener('click', closeModal);
+    el('historyNoteCancelBtn')?.addEventListener('click', closeModal);
+    el('historyNoteSaveBtn')?.addEventListener('click', saveNote);
+    el('historyNoteDeleteBtn')?.addEventListener('click', deleteNote);
+    el('historyNoteModalBackdrop')?.addEventListener('click', evt => {
+      if (evt.target === el('historyNoteModalBackdrop')) closeModal();
     });
 
-    $('historyMachineSelect')?.addEventListener('change', () => {
-      setTimeout(() => {
-        updateToolbarVisibility();
-        listenNotes();
-        updateChart();
-      }, 100);
-    });
-
-    $('historyDate')?.addEventListener('change', () => {
-      setTimeout(() => {
-        updateToolbarVisibility();
-        listenNotes();
-        updateChart();
-      }, 100);
-    });
-
-    $('customStartTime')?.addEventListener('change', updateChart);
-    $('customEndTime')?.addEventListener('change', updateChart);
-
-    const machineSelect = $('historyMachineSelect');
-    if (machineSelect && window.MutationObserver) {
-      const observer = new MutationObserver(() => {
-        updateToolbarVisibility();
-        listenNotes();
-        updateChart();
-      });
-      observer.observe(machineSelect, { childList: true, subtree: true, attributes: true, attributeFilter: ['value'] });
+    const machine = el('historyMachineSelect');
+    if (machine && !machine.__wmNoteSelectBound) {
+      machine.__wmNoteSelectBound = true;
+      machine.addEventListener('change', () => setTimeout(loadNotes, 100));
+      machine.addEventListener('input', () => setTimeout(loadNotes, 100));
+      if (window.MutationObserver) {
+        new MutationObserver(() => setTimeout(loadNotes, 100))
+          .observe(machine, { childList: true, subtree: true, attributes: true });
+      }
     }
+
+    const date = el('historyDate');
+    if (date && !date.__wmNoteDateBound) {
+      date.__wmNoteDateBound = true;
+      date.addEventListener('change', () => setTimeout(loadNotes, 100));
+      date.addEventListener('input', () => setTimeout(loadNotes, 100));
+    }
+
+    el('customStartTime')?.addEventListener('change', redraw);
+    el('customEndTime')?.addEventListener('change', redraw);
   }
 
   function init() {
+    if (state.ready) return;
+    state.ready = true;
+
     registerPlugin();
-    patchHistoryLoad();
-    bindUi();
-    setupCanvasEvents();
+    patchLoad();
+    bindUI();
+    bindCanvas();
+    updateButton();
 
-    const emailEl = $('currentUserEmail');
-    STATE.userEmail = emailEl ? emailEl.textContent : '';
+    setTimeout(loadNotes, 500);
+    setTimeout(() => { updateButton(); redraw(); }, 1200);
 
-    setTimeout(() => {
-      updateToolbarVisibility();
-      listenNotes();
-      updateChart();
-    }, 600);
-
+    // Fallback profissional: cobre selects carregados dinamicamente e recriação do canvas.
     setInterval(() => {
-      patchHistoryLoad();
-      setupCanvasEvents();
-      const chart = getChartInstance();
-      updateToolbarVisibility();
-      if (chart && chart !== STATE.chart) {
-        STATE.chart = chart;
-        updateChart();
+      patchLoad();
+      bindUI();
+      bindCanvas();
+      updateButton();
+      const c = getChart();
+      if (c && c !== state.chart) {
+        state.chart = c;
+        redraw();
       }
-    }, 1500);
+    }, 1000);
   }
 
-  document.addEventListener('DOMContentLoaded', init);
-
   window.WMoldesHistoryNotes = {
-    open: () => {
-      if (typeof window.__wmoldesOpenHistoryNoteModal === 'function') {
-        window.__wmoldesOpenHistoryNoteModal();
-      } else {
-        openModal(null);
-      }
-    },
-    refresh: () => {
-      if (typeof window.__wmoldesRefreshHistoryNotes === 'function') {
-        window.__wmoldesRefreshHistoryNotes();
-      } else {
-        listenNotes();
-        updateToolbarVisibility();
-        updateChart();
-      }
-    }
+    open: () => openModal(null),
+    refresh: () => loadNotes(),
+    redraw: () => redraw()
   };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

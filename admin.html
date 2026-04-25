@@ -760,15 +760,13 @@
                     
                     <!-- Gráfico -->
                     <div class="chart-container">
-                        <!-- Anotações do gráfico: ficam integradas ao canvas, por máquina e data -->
-                        <div class="history-notes-toolbar is-disabled" id="historyNotesToolbar">
-                            <button type="button" class="history-note-add-btn" id="historyNoteAddBtn" onclick="window.WMoldesHistoryNotes && window.WMoldesHistoryNotes.open()">
+                        <!-- Anotações integradas ao gráfico -->
+                        <div class="history-notes-toolbar" id="historyNotesToolbar" style="display:none;">
+                            <button type="button" class="history-note-add-btn" id="historyNoteAddBtn">
                                 <i class="fas fa-sticky-note"></i>
                                 Nova anotação
                             </button>
-                            <span class="history-notes-helper">
-                                Passe o mouse sobre o bloco no topo do gráfico para visualizar.
-                            </span>
+                            <span class="history-notes-helper">Anotações e manutenção aparecem no topo do gráfico.</span>
                         </div>
 
                         <div class="chart-scroll">
@@ -820,7 +818,7 @@
                     <div class="history-note-modal-header">
                         <div>
                             <h3 id="historyNoteModalTitle">Anotação do gráfico</h3>
-                            <p>Escolha a data e o horário onde o bloco deve aparecer no gráfico.</p>
+                            <p>A anotação fica no topo do gráfico, alinhada pelo horário escolhido.</p>
                         </div>
                         <button type="button" class="history-note-icon-btn" id="historyNoteCloseBtn" aria-label="Fechar">
                             <i class="fas fa-times"></i>
@@ -846,7 +844,7 @@
 
                     <div class="history-note-field">
                         <label for="historyNoteMessage">Mensagem</label>
-                        <textarea id="historyNoteMessage" rows="4" placeholder="Digite a anotação..."></textarea>
+                        <textarea id="historyNoteMessage" rows="4" placeholder="Digite a mensagem da anotação..."></textarea>
                     </div>
 
                     <div class="history-note-modal-actions">
@@ -858,7 +856,7 @@
                             <button type="button" class="history-note-secondary-btn" id="historyNoteCancelBtn">Cancelar</button>
                             <button type="button" class="history-note-primary-btn" id="historyNoteSaveBtn">
                                 <i class="fas fa-save"></i>
-                                Salvar anotação
+                                Salvar
                             </button>
                         </div>
                     </div>
