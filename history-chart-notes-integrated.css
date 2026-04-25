@@ -653,3 +653,262 @@ button[onclick*="exportHistoryPdf"] {
     max-width: none !important;
   }
 }
+
+
+/* =========================================================
+   LAYOUT DO HISTÓRICO IGUAL À REFERÊNCIA
+   Máquina preservada acima da Data.
+   ========================================================= */
+
+#history-section .history-controls,
+#history-section .history-filter-card,
+#history-section .history-filters,
+#history-section .history-toolbar,
+#history-section .history-header-controls {
+  display: grid !important;
+  grid-template-columns: minmax(440px, 1fr) minmax(460px, 1fr) !important;
+  grid-template-areas:
+    "actions actions"
+    "line line"
+    "left period"
+    "left comments" !important;
+  gap: 26px 42px !important;
+  align-items: start !important;
+  max-width: 1500px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 32px 38px 28px !important;
+  min-height: 520px !important;
+  box-sizing: border-box !important;
+}
+
+#history-section .history-controls::before,
+#history-section .history-filter-card::before,
+#history-section .history-filters::before,
+#history-section .history-toolbar::before,
+#history-section .history-header-controls::before {
+  content: "" !important;
+  grid-area: line !important;
+  display: block !important;
+  height: 1px !important;
+  width: 100% !important;
+  background: #e2e8f0 !important;
+}
+
+/* Topo: Tutorial + Exportar PDF */
+#history-section .history-actions,
+#history-section .history-top-actions,
+#history-section .history-buttons,
+#history-section .history-action-buttons {
+  grid-area: actions !important;
+  display: flex !important;
+  gap: 28px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+}
+
+#history-section button[onclick*="showHistoryTutorial"],
+#history-section .tutorial-btn,
+#history-section .history-tutorial-btn {
+  grid-area: actions !important;
+  justify-self: start !important;
+}
+
+#history-section button[onclick*="exportHistoryPdf"],
+#history-section .export-pdf-btn {
+  grid-area: actions !important;
+  justify-self: start !important;
+  margin-left: 285px !important;
+  white-space: nowrap !important;
+}
+
+/* Coluna esquerda: Máquina acima de Data */
+#history-section .machine-field,
+#history-section .history-machine-field,
+#history-section [data-field="machine"],
+#history-section label[for="historyMachineSelect"] {
+  grid-area: left !important;
+  align-self: start !important;
+}
+
+#history-section .date-field,
+#history-section .history-date-field,
+#history-section [data-field="date"],
+#history-section label[for="historyDate"] {
+  grid-area: left !important;
+  align-self: start !important;
+  margin-top: 128px !important;
+}
+
+#history-section #historyMachineSelect,
+#history-section #historyDate {
+  width: 100% !important;
+  max-width: 650px !important;
+  min-width: 320px !important;
+  height: 58px !important;
+  border-radius: 14px !important;
+  font-size: 16px !important;
+}
+
+/* Período à direita */
+#history-section .period-selector,
+#history-section .period-options,
+#history-section .period-buttons {
+  grid-area: period !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(170px, 1fr)) !important;
+  gap: 0 !important;
+  width: 100% !important;
+  max-width: 700px !important;
+  border: 1px solid #dbe3ef !important;
+  border-radius: 18px !important;
+  overflow: hidden !important;
+  background: #fff !important;
+}
+
+#history-section .period-btn,
+#history-section .period-option {
+  min-height: 92px !important;
+  padding: 18px 22px !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  font-size: 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+#history-section .period-btn small,
+#history-section .period-option small {
+  font-size: 14px !important;
+  margin-top: 6px !important;
+}
+
+#history-section .period-btn[data-period="custom"],
+#history-section .period-option[data-period="custom"] {
+  grid-column: 1 / -1 !important;
+  align-items: flex-start !important;
+  padding-left: 34px !important;
+  min-height: 86px !important;
+}
+
+/* Ver comentários no canto inferior direito */
+#historyCommentsBtn {
+  grid-area: comments !important;
+  justify-self: end !important;
+  align-self: end !important;
+  width: 250px !important;
+  max-width: 250px !important;
+  min-height: 58px !important;
+  margin: 0 !important;
+  border-radius: 16px !important;
+  font-size: 15px !important;
+}
+
+/* Remove textos de teste/depuração */
+#history-section .debug-text,
+#history-section .test-label,
+#history-section [data-debug],
+#history-section [data-test] {
+  display: none !important;
+}
+
+/* Tablet */
+@media (max-width: 1180px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "actions"
+      "line"
+      "left"
+      "period"
+      "comments" !important;
+    min-height: unset !important;
+    padding: 28px !important;
+  }
+
+  #history-section button[onclick*="exportHistoryPdf"],
+  #history-section .export-pdf-btn {
+    margin-left: 0 !important;
+  }
+
+  #history-section .date-field,
+  #history-section .history-date-field,
+  #history-section [data-field="date"],
+  #history-section label[for="historyDate"] {
+    margin-top: 118px !important;
+  }
+
+  #history-section .period-selector,
+  #history-section .period-options,
+  #history-section .period-buttons {
+    max-width: none !important;
+  }
+
+  #historyCommentsBtn {
+    justify-self: start !important;
+  }
+}
+
+/* Mobile */
+@media (max-width: 680px) {
+  #history-section .history-controls,
+  #history-section .history-filter-card,
+  #history-section .history-filters,
+  #history-section .history-toolbar,
+  #history-section .history-header-controls {
+    padding: 20px !important;
+    gap: 18px !important;
+  }
+
+  #history-section .history-actions,
+  #history-section .history-top-actions,
+  #history-section .history-buttons,
+  #history-section .history-action-buttons {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+  }
+
+  #history-section button[onclick*="showHistoryTutorial"],
+  #history-section .tutorial-btn,
+  #history-section .history-tutorial-btn,
+  #history-section button[onclick*="exportHistoryPdf"],
+  #history-section .export-pdf-btn {
+    width: 100% !important;
+    margin-left: 0 !important;
+    justify-content: center !important;
+  }
+
+  #history-section #historyMachineSelect,
+  #history-section #historyDate {
+    max-width: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  #history-section .date-field,
+  #history-section .history-date-field,
+  #history-section [data-field="date"],
+  #history-section label[for="historyDate"] {
+    margin-top: 108px !important;
+  }
+
+  #history-section .period-selector,
+  #history-section .period-options,
+  #history-section .period-buttons {
+    grid-template-columns: 1fr !important;
+  }
+
+  #historyCommentsBtn {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
