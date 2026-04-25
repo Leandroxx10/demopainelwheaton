@@ -1,6 +1,7 @@
 /* WMoldes - Anotações integradas ao gráfico */
 
-#history-section .chart-container {
+#history-section .chart-container,
+.chart-container {
   position: relative !important;
 }
 
@@ -251,11 +252,29 @@
     margin: 0 0 12px;
     flex-wrap: wrap;
   }
-  .history-notes-helper { display: none; }
-  .history-note-form-grid { grid-template-columns: 1fr; gap: 0; }
-  .history-note-modal-actions { flex-direction: column-reverse; align-items: stretch; }
-  .history-note-modal-actions-right { flex-direction: column-reverse; }
+
+  .history-notes-helper {
+    display: none;
+  }
+
+  .history-note-form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .history-note-modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .history-note-modal-actions-right {
+    flex-direction: column-reverse;
+  }
+
   .history-note-primary-btn,
   .history-note-secondary-btn,
-  .history-note-danger-btn { width: 100%; justify-content: center; }
+  .history-note-danger-btn {
+    width: 100%;
+    justify-content: center;
+  }
 }

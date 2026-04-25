@@ -1,65 +1,15 @@
 /*
- * WMoldes - Anotações no gráfico de histórico
- * Versão segura: NÃO altera loadHistoryChart, evitando "Maximum call stack size exceeded".
+ * WMoldes - Anotações profissionais integradas ao gráfico
+ * Versão robusta:
+ * - Cria toolbar/modal se o HTML não tiver.
+ * - Botão aparece quando houver máquina selecionada.
+ * - Não altera loadHistoryChart().
+ * - Desenha anotações e manutenção dentro do canvas por plugin Chart.js.
  */
 (function () {
   'use strict';
 
-  /*
-   * Correção segura para Chart.js:
-   * O painel recria o gráfico no mesmo canvas em alguns fluxos.
-   * Antes de criar um novo Chart no mesmo canvas, destruímos a instância anterior.
-   */
-  function installChartCanvasReuseFix() {
-    if (!window.Chart || window.Chart.__wmoldesCanvasReuseFix) return;
-
-    const OriginalChart = window.Chart;
-
-    const WrappedChart = new Proxy(OriginalChart, {
-      construct(target, args) {
-        try {
-          const canvasArg = args[0];
-          let canvas = null;
-
-          if (typeof canvasArg === 'string') {
-            canvas = document.getElementById(canvasArg.replace('#', ''));
-          } else if (canvasArg && canvasArg.canvas) {
-            canvas = canvasArg.canvas;
-          } else if (canvasArg && canvasArg.nodeName === 'CANVAS') {
-            canvas = canvasArg;
-          }
-
-          if (canvas && target.getChart) {
-            const existing = target.getChart(canvas);
-            if (existing && typeof existing.destroy === 'function') {
-              existing.destroy();
-            }
-          }
-        } catch (err) {
-          console.warn('WMoldes: não foi possível destruir gráfico anterior:', err);
-        }
-
-        return Reflect.construct(target, args);
-      },
-      get(target, prop) {
-        return target[prop];
-      },
-      set(target, prop, value) {
-        target[prop] = value;
-        return true;
-      }
-    });
-
-    Object.setPrototypeOf(WrappedChart, OriginalChart);
-    WrappedChart.prototype = OriginalChart.prototype;
-    WrappedChart.__wmoldesCanvasReuseFix = true;
-    window.Chart = WrappedChart;
-  }
-
-  installChartCanvasReuseFix();
-
-
-  const ROOT = 'historyChartNotesV2';
+  const ROOT = 'historyChartNotesV3';
   const state = {
     notes: [],
     chart: null,
@@ -73,11 +23,11 @@
   function pad(n) { return String(n).padStart(2, '0'); }
   function todayISO() {
     const d = new Date();
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
   function nowText() {
     const d = new Date();
-    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   function esc(v) {
     return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));
@@ -100,11 +50,22 @@
   function getMachine() {
     const s = el('historyMachineSelect');
     if (!s) return '';
-    const value = String(s.value || '').trim();
-    const text = s.options && s.selectedIndex >= 0 ? String(s.options[s.selectedIndex].textContent || '').trim().toLowerCase() : '';
-    if (!value) return '';
-    if (value.toLowerCase().includes('carregando') || text.includes('carregando')) return '';
-    if (text.includes('selecione') && !value) return '';
+
+    let value = String(s.value || '').trim();
+    const text = s.options && s.selectedIndex >= 0
+      ? String(s.options[s.selectedIndex].textContent || '').trim()
+      : '';
+
+    const lower = `${value} ${text}`.toLowerCase();
+
+    if (lower.includes('carregando')) return '';
+    if (lower.includes('selecione') && !value) return '';
+
+    // Alguns selects customizados deixam value vazio, mas o texto tem "Máquina X".
+    if (!value && text && !text.toLowerCase().includes('carregando') && !text.toLowerCase().includes('selecione')) {
+      value = text;
+    }
+
     return value;
   }
 
@@ -153,6 +114,81 @@
     return { start: '00:00', end: '23:59' };
   }
 
+  function ensureUI() {
+    const chartContainer = qs('#history-section .chart-container') || qs('.chart-container');
+    if (chartContainer && !el('historyNotesToolbar')) {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'history-notes-toolbar is-disabled';
+      toolbar.id = 'historyNotesToolbar';
+      toolbar.style.display = 'none';
+      toolbar.innerHTML = `
+        <button type="button" class="history-note-add-btn" id="historyNoteAddBtn">
+          <i class="fas fa-sticky-note"></i>
+          Nova anotação
+        </button>
+        <span class="history-notes-helper">Anotações e manutenção aparecem no topo do gráfico.</span>
+      `;
+      chartContainer.insertBefore(toolbar, chartContainer.firstChild);
+    }
+
+    if (!el('historyNoteModalBackdrop')) {
+      const modal = document.createElement('div');
+      modal.className = 'history-note-modal-backdrop';
+      modal.id = 'historyNoteModalBackdrop';
+      modal.setAttribute('aria-hidden', 'true');
+      modal.innerHTML = `
+        <div class="history-note-modal" role="dialog" aria-modal="true" aria-labelledby="historyNoteModalTitle">
+          <div class="history-note-modal-header">
+            <div>
+              <h3 id="historyNoteModalTitle">Anotação do gráfico</h3>
+              <p>A anotação fica no topo do gráfico, alinhada pelo horário escolhido.</p>
+            </div>
+            <button type="button" class="history-note-icon-btn" id="historyNoteCloseBtn" aria-label="Fechar">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <input type="hidden" id="historyNoteId">
+
+          <div class="history-note-form-grid">
+            <div class="history-note-field">
+              <label for="historyNoteDate">Data</label>
+              <input type="date" id="historyNoteDate">
+            </div>
+            <div class="history-note-field">
+              <label for="historyNoteStart">Horário inicial</label>
+              <input type="time" id="historyNoteStart">
+            </div>
+            <div class="history-note-field">
+              <label for="historyNoteEnd">Horário final</label>
+              <input type="time" id="historyNoteEnd">
+            </div>
+          </div>
+
+          <div class="history-note-field">
+            <label for="historyNoteMessage">Mensagem</label>
+            <textarea id="historyNoteMessage" rows="4" placeholder="Digite a mensagem da anotação..."></textarea>
+          </div>
+
+          <div class="history-note-modal-actions">
+            <button type="button" class="history-note-danger-btn" id="historyNoteDeleteBtn">
+              <i class="fas fa-trash"></i>
+              Remover
+            </button>
+            <div class="history-note-modal-actions-right">
+              <button type="button" class="history-note-secondary-btn" id="historyNoteCancelBtn">Cancelar</button>
+              <button type="button" class="history-note-primary-btn" id="historyNoteSaveBtn">
+                <i class="fas fa-save"></i>
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+  }
+
   function getChart() {
     const canvas = el('historyChart');
     if (!canvas || !window.Chart) return null;
@@ -183,10 +219,14 @@
         const h = labelHour(lab);
         if (h == null) return;
         const d = Math.abs(h - hour);
-        if (d < diff) { diff = d; best = i; }
+        if (d < diff) {
+          diff = d;
+          best = i;
+        }
       });
       px = xs.getPixelForValue(best);
     }
+
     return px;
   }
 
@@ -211,18 +251,22 @@
   }
 
   function updateButton() {
-    const bar = el('historyNotesToolbar');
-    if (!bar) return;
+    ensureUI();
+
+    const toolbar = el('historyNotesToolbar');
+    if (!toolbar) return;
 
     const ok = !!getMachine();
-    bar.style.display = ok ? 'flex' : 'none';
-    bar.classList.toggle('is-disabled', !ok);
+
+    toolbar.style.display = ok ? 'flex' : 'none';
+    toolbar.classList.toggle('is-disabled', !ok);
   }
 
   function subscribeNotes() {
     updateButton();
 
     const machine = getMachine();
+
     if (!machine) {
       state.notes = [];
       redraw();
@@ -270,6 +314,7 @@
 
   function maintenanceRowsFrom(source, machine) {
     if (!source) return [];
+
     const direct = source[machine] || source[String(machine)];
 
     if (Array.isArray(direct)) return direct;
@@ -352,6 +397,7 @@
     });
 
     const seen = new Set();
+
     return intervals.filter(i => {
       const k = `${i.startTime}|${i.endTime}|${i.message}`;
       if (seen.has(k)) return false;
@@ -397,7 +443,7 @@
   }
 
   const notesPlugin = {
-    id: 'wmoldesNotesPluginSafe',
+    id: 'wmoldesNotesPluginComplete',
     beforeInit(chart) {
       forcePadding(chart);
     },
@@ -406,6 +452,7 @@
     },
     afterDatasetsDraw(chart) {
       state.chart = chart;
+
       const xs = xScale(chart);
       if (!xs || !chart.chartArea) return;
 
@@ -439,6 +486,7 @@
           note.__hit = { x: left, y, w, h };
 
           ctx.save();
+
           ctx.fillStyle = 'rgba(100,116,139,.22)';
           roundRect(ctx, left, y, w, h, 9);
           ctx.fill();
@@ -461,6 +509,7 @@
           ctx.moveTo(right, y + h + 3);
           ctx.lineTo(right, chart.chartArea.bottom);
           ctx.stroke();
+
           ctx.restore();
           return;
         }
@@ -521,7 +570,7 @@
     if (!window.Chart) return;
 
     try {
-      if (!Chart.registry.plugins.get('wmoldesNotesPluginSafe')) {
+      if (!Chart.registry.plugins.get('wmoldesNotesPluginComplete')) {
         Chart.register(notesPlugin);
       }
     } catch {
@@ -534,6 +583,7 @@
     registerPlugin();
 
     const chart = getChart();
+
     if (chart) {
       state.chart = chart;
       try {
@@ -552,11 +602,13 @@
     t.style.display = 'none';
     document.body.appendChild(t);
     state.tooltip = t;
+
     return t;
   }
 
   function hitNote(evt) {
     const chart = getChart();
+
     if (!chart || !chart.canvas) return null;
 
     const rect = chart.canvas.getBoundingClientRect();
@@ -564,7 +616,6 @@
     const sy = chart.canvas.height / rect.height;
     const x = (evt.clientX - rect.left) * sx;
     const y = (evt.clientY - rect.top) * sy;
-
     const notes = visibleNotes();
 
     for (let i = notes.length - 1; i >= 0; i--) {
@@ -608,9 +659,10 @@
 
   function bindCanvas() {
     const canvas = el('historyChart');
-    if (!canvas || canvas.__wmNotesBoundSafe) return;
 
-    canvas.__wmNotesBoundSafe = true;
+    if (!canvas || canvas.__wmNotesBoundComplete) return;
+
+    canvas.__wmNotesBoundComplete = true;
 
     canvas.addEventListener('mousemove', evt => {
       const n = hitNote(evt);
@@ -637,6 +689,8 @@
   }
 
   function openModal(note) {
+    ensureUI();
+
     const machine = getMachine();
 
     if (!machine) {
@@ -648,7 +702,7 @@
     const modal = el('historyNoteModalBackdrop');
 
     if (!modal) {
-      alert('Modal de anotação não encontrado no admin.html.');
+      alert('Modal de anotação não encontrado.');
       return;
     }
 
@@ -690,6 +744,7 @@
     if (!message) return alert('Digite a mensagem.');
 
     const authorText = el('currentUserEmail')?.textContent || 'Usuário';
+
     const payload = {
       machine,
       date,
@@ -710,12 +765,14 @@
       }
     } else {
       const rows = loadLocal();
+
       if (id) {
         const ix = rows.findIndex(r => r.id === id);
         if (ix >= 0) rows[ix] = { ...rows[ix], ...payload };
       } else {
         rows.push({ id: `local_${Date.now()}`, ...payload, createdAt: Date.now(), createdAtText: nowText() });
       }
+
       saveLocal(rows);
       state.notes = rows;
     }
@@ -726,6 +783,7 @@
 
   async function deleteNote() {
     const id = el('historyNoteId')?.value || '';
+
     if (!id) return;
     if (!confirm('Remover esta anotação?')) return;
 
@@ -745,27 +803,54 @@
   }
 
   function bindUI() {
+    ensureUI();
+
     const add = el('historyNoteAddBtn');
-    if (add && !add.__wmBoundSafe) {
-      add.__wmBoundSafe = true;
+
+    if (add && !add.__wmBoundComplete) {
+      add.__wmBoundComplete = true;
       add.addEventListener('click', evt => {
         evt.preventDefault();
         openModal(null);
       });
     }
 
-    el('historyNoteCloseBtn')?.addEventListener('click', closeModal);
-    el('historyNoteCancelBtn')?.addEventListener('click', closeModal);
-    el('historyNoteSaveBtn')?.addEventListener('click', saveNote);
-    el('historyNoteDeleteBtn')?.addEventListener('click', deleteNote);
+    const close = el('historyNoteCloseBtn');
+    if (close && !close.__wmBoundComplete) {
+      close.__wmBoundComplete = true;
+      close.addEventListener('click', closeModal);
+    }
 
-    el('historyNoteModalBackdrop')?.addEventListener('click', evt => {
-      if (evt.target === el('historyNoteModalBackdrop')) closeModal();
-    });
+    const cancel = el('historyNoteCancelBtn');
+    if (cancel && !cancel.__wmBoundComplete) {
+      cancel.__wmBoundComplete = true;
+      cancel.addEventListener('click', closeModal);
+    }
+
+    const save = el('historyNoteSaveBtn');
+    if (save && !save.__wmBoundComplete) {
+      save.__wmBoundComplete = true;
+      save.addEventListener('click', saveNote);
+    }
+
+    const del = el('historyNoteDeleteBtn');
+    if (del && !del.__wmBoundComplete) {
+      del.__wmBoundComplete = true;
+      del.addEventListener('click', deleteNote);
+    }
+
+    const backdrop = el('historyNoteModalBackdrop');
+    if (backdrop && !backdrop.__wmBoundComplete) {
+      backdrop.__wmBoundComplete = true;
+      backdrop.addEventListener('click', evt => {
+        if (evt.target === backdrop) closeModal();
+      });
+    }
 
     const machine = el('historyMachineSelect');
-    if (machine && !machine.__wmNoteSelectBoundSafe) {
-      machine.__wmNoteSelectBoundSafe = true;
+    if (machine && !machine.__wmNoteSelectBoundComplete) {
+      machine.__wmNoteSelectBoundComplete = true;
+
       machine.addEventListener('change', () => setTimeout(subscribeNotes, 150));
       machine.addEventListener('input', () => setTimeout(subscribeNotes, 150));
 
@@ -776,21 +861,30 @@
     }
 
     const date = el('historyDate');
-    if (date && !date.__wmNoteDateBoundSafe) {
-      date.__wmNoteDateBoundSafe = true;
+    if (date && !date.__wmNoteDateBoundComplete) {
+      date.__wmNoteDateBoundComplete = true;
       date.addEventListener('change', () => setTimeout(subscribeNotes, 150));
       date.addEventListener('input', () => setTimeout(subscribeNotes, 150));
     }
 
-    el('customStartTime')?.addEventListener('change', redraw);
-    el('customEndTime')?.addEventListener('change', redraw);
+    const start = el('customStartTime');
+    if (start && !start.__wmNoteBoundComplete) {
+      start.__wmNoteBoundComplete = true;
+      start.addEventListener('change', redraw);
+    }
+
+    const end = el('customEndTime');
+    if (end && !end.__wmNoteBoundComplete) {
+      end.__wmNoteBoundComplete = true;
+      end.addEventListener('change', redraw);
+    }
   }
 
   function init() {
     if (state.ready) return;
     state.ready = true;
 
-    installChartCanvasReuseFix();
+    ensureUI();
     registerPlugin();
     bindUI();
     bindCanvas();
@@ -799,15 +893,15 @@
     setTimeout(subscribeNotes, 500);
     setTimeout(redraw, 1200);
 
-    // Fallback: não mexe no gráfico original, só reconecta o plugin e UI.
     setInterval(() => {
-      installChartCanvasReuseFix();
+      ensureUI();
       registerPlugin();
       bindUI();
       bindCanvas();
       updateButton();
 
       const chart = getChart();
+
       if (chart && chart !== state.chart) {
         state.chart = chart;
         redraw();
