@@ -1243,3 +1243,260 @@ button[onclick*="exportHistoryPdf"] {
     min-width: 900px !important;
   }
 }
+
+
+/* =========================================================
+   CSS FORÇADO DEFINITIVO - HISTÓRICO
+   O DOM é reorganizado por history-layout-force.js.
+   ========================================================= */
+
+#history-section .wm-history-forced-card {
+  padding: 28px 34px 24px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+}
+
+#wmHistoryForcedLayout {
+  display: grid !important;
+  grid-template-columns: 300px 300px minmax(420px, 1fr) !important;
+  grid-template-areas:
+    "actions actions actions"
+    "fields fields period"
+    "line line line"
+    ". . comments" !important;
+  gap: 22px 28px !important;
+  align-items: end !important;
+  width: 100% !important;
+  max-width: 1180px !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
+
+#wmHistoryForcedActions {
+  grid-area: actions !important;
+  display: flex !important;
+  gap: 14px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+}
+
+#wmHistoryForcedActions > * {
+  position: static !important;
+  margin: 0 !important;
+  transform: none !important;
+  z-index: 1 !important;
+}
+
+#wmHistoryForcedFields {
+  grid-area: fields !important;
+  display: grid !important;
+  grid-template-columns: 300px 300px !important;
+  gap: 28px !important;
+  align-items: end !important;
+}
+
+#wmHistoryForcedFields .wm-history-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  position: static !important;
+  transform: none !important;
+  z-index: 2 !important;
+}
+
+#wmHistoryForcedFields select,
+#wmHistoryForcedFields #historyMachineSelect,
+#wmHistoryForcedFields #historyDate {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  height: 52px !important;
+  border-radius: 12px !important;
+  box-sizing: border-box !important;
+}
+
+#wmHistoryForcedPeriod {
+  grid-area: period !important;
+  width: 100% !important;
+  align-self: end !important;
+}
+
+#wmHistoryForcedPeriod .wm-period-box,
+#wmHistoryForcedPeriod .period-selector,
+#wmHistoryForcedPeriod .period-options,
+#wmHistoryForcedPeriod .period-buttons {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(92px, 1fr)) !important;
+  width: 100% !important;
+  min-width: 420px !important;
+  max-width: none !important;
+  min-height: 74px !important;
+  gap: 0 !important;
+  border: 1px solid #dbe3ef !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  background: #fff !important;
+  box-sizing: border-box !important;
+}
+
+#wmHistoryForcedPeriod .wm-period-item,
+#wmHistoryForcedPeriod .period-btn,
+#wmHistoryForcedPeriod .period-option,
+#wmHistoryForcedPeriod [data-period] {
+  min-height: 74px !important;
+  padding: 10px 12px !important;
+  border: 0 !important;
+  border-right: 1px solid #edf2f7 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  color: #1f2937 !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  white-space: normal !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+}
+
+#wmHistoryForcedPeriod .wm-period-item small,
+#wmHistoryForcedPeriod .period-btn small,
+#wmHistoryForcedPeriod .period-option small {
+  display: block !important;
+  margin-top: 4px !important;
+  font-size: 11px !important;
+  color: inherit !important;
+  opacity: .75 !important;
+  white-space: nowrap !important;
+}
+
+#wmHistoryForcedPeriod .wm-period-item.active,
+#wmHistoryForcedPeriod .period-btn.active,
+#wmHistoryForcedPeriod .period-option.active {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  margin: 6px !important;
+  min-height: 62px !important;
+  box-shadow: 0 10px 26px rgba(37,99,235,.22) !important;
+}
+
+#wmHistoryForcedPeriod .wm-period-custom,
+#wmHistoryForcedPeriod [data-period="custom"] {
+  grid-column: auto !important;
+  border-right: 0 !important;
+  white-space: nowrap !important;
+}
+
+#wmHistoryForcedLayout::after {
+  content: "" !important;
+  grid-area: line !important;
+  height: 1px !important;
+  width: 100% !important;
+  background: #e2e8f0 !important;
+  display: block !important;
+}
+
+#wmHistoryForcedBottom {
+  grid-area: comments !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+}
+
+#wmHistoryForcedBottom #historyCommentsBtn {
+  width: 236px !important;
+  max-width: 236px !important;
+  min-height: 54px !important;
+  margin: 0 !important;
+  border-radius: 14px !important;
+  position: static !important;
+  transform: none !important;
+}
+
+/* Scroll horizontal do gráfico */
+#history-section .chart-scroll,
+.chart-scroll {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+#history-section .chart-inner,
+.chart-inner {
+  min-width: 980px !important;
+}
+
+@media (max-width: 1100px) {
+  #wmHistoryForcedLayout {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "actions"
+      "fields"
+      "period"
+      "line"
+      "comments" !important;
+  }
+
+  #wmHistoryForcedPeriod .wm-period-box,
+  #wmHistoryForcedPeriod .period-selector,
+  #wmHistoryForcedPeriod .period-options,
+  #wmHistoryForcedPeriod .period-buttons {
+    min-width: 0 !important;
+    grid-template-columns: repeat(5, minmax(80px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  #history-section .wm-history-forced-card {
+    padding: 18px !important;
+  }
+
+  #wmHistoryForcedLayout {
+    gap: 14px !important;
+  }
+
+  #wmHistoryForcedActions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  #wmHistoryForcedActions > * {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  #wmHistoryForcedFields {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  #wmHistoryForcedPeriod .wm-period-box,
+  #wmHistoryForcedPeriod .period-selector,
+  #wmHistoryForcedPeriod .period-options,
+  #wmHistoryForcedPeriod .period-buttons {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  #wmHistoryForcedPeriod .wm-period-custom,
+  #wmHistoryForcedPeriod [data-period="custom"] {
+    grid-column: 1 / -1 !important;
+  }
+
+  #wmHistoryForcedBottom #historyCommentsBtn {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  #history-section .chart-inner,
+  .chart-inner {
+    min-width: 900px !important;
+  }
+}
