@@ -324,3 +324,9 @@ body.dark .history-note-icon-btn,
 }
 
 #historyNotesToolbar.is-disabled { display: none !important; }
+
+
+/* V5: faixa de manutenção tipo Gantt desenhada dentro do canvas */
+.history-note-tooltip-time.maintenance::before {
+  content: "Faixa de manutenção • ";
+}
