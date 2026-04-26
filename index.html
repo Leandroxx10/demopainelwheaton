@@ -52,7 +52,7 @@
                 <button class="btn" id="refreshBtn">
                     <i class="fas fa-sync-alt"></i> Atualizar
                 </button>
-                <button class="btn" id="filtersBtn" type="button" onclick="window.WMDashboardFilters && window.WMDashboardFilters.toggle()">
+                <button class="btn" id="filtersBtn" type="button" >
                     <i class="fas fa-filter"></i> Filtros
                 </button>
                 <button class="btn" id="compactModeBtn" aria-pressed="false">
@@ -76,11 +76,11 @@
                 <div class="filter-section">
                     <label><i class="fas fa-fire"></i> Forno:</label>
                     <div class="filter-buttons">
-                        <button class="filter-btn" data-forno="A">Forno A</button>
-                        <button class="filter-btn" data-forno="B">Forno B</button>
-                        <button class="filter-btn" data-forno="C">Forno C</button>
-                        <button class="filter-btn" data-forno="D">Forno D</button>
-                        <button class="filter-btn" id="clearFornoBtn">Limpar</button>
+                        <button class="filter-btn" type="button" data-forno="A">Forno A</button>
+                        <button class="filter-btn" type="button" data-forno="B">Forno B</button>
+                        <button class="filter-btn" type="button" data-forno="C">Forno C</button>
+                        <button class="filter-btn" type="button" data-forno="D">Forno D</button>
+                        <button class="filter-btn" type="button" id="clearFornoBtn">Limpar</button>
                     </div>
                 </div>
                 
@@ -88,10 +88,10 @@
                 <div class="filter-section">
                     <label><i class="fas fa-exclamation-triangle"></i> Status:</label>
                     <div class="filter-buttons">
-                        <button class="filter-btn" data-status="critico">Baixa Reserva</button>
-                        <button class="filter-btn" data-status="baixo">Baixo Estoque</button>
-                        <button class="filter-btn" data-status="normal">Bem Abastecido</button>
-                        <button class="filter-btn" id="clearStatusBtn">Todos</button>
+                        <button class="filter-btn" type="button" data-status="critico">Baixa Reserva</button>
+                        <button class="filter-btn" type="button" data-status="baixo">Baixo Estoque</button>
+                        <button class="filter-btn" type="button" data-status="normal">Bem Abastecido</button>
+                        <button class="filter-btn" type="button" id="clearStatusBtn">Todos</button>
                     </div>
                 </div>
                 
@@ -208,11 +208,10 @@
     <script src="firebase-config.js"></script>
     <script src="auth.js"></script>
     <script src="cards.js"></script>
-    <script src="fix-maintenance-filter.js"></script>
     <script src="image-zoom.js"></script>
     <script src="script.js"></script>
     <script src="realtime-firebase-sync.js?v=21"></script>
-    <script src="wm-dashboard-fixes.js?v=1"></script>
+    <script src="wm-dashboard-fixes.js?v=2"></script>
     
     <script>
         // Configurar eventos dos botões

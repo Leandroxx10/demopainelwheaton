@@ -785,9 +785,69 @@ function getFornoFromMachineId(machineId) {
     return null;
 }
 
+function normalizeMachineSearchTerm(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+}
+
+function isMachineInMaintenance(machineId) {
+    const status = machineMaintenance && machineMaintenance[machineId];
+    return !!(status && (status.isInMaintenance === true || status.status === 'maintenance' || status.status === 'manutencao'));
+}
+
+function matchesMachineSearch(machineId) {
+    const rawSearch = (activeFilters.search || '').trim();
+    if (!rawSearch) return true;
+
+    const normalizedSearch = normalizeMachineSearchTerm(rawSearch);
+    const normalizedId = normalizeMachineSearchTerm(machineId);
+    const forno = getFornoFromMachineId(machineId) || '';
+    const numericPart = String(machineId).match(/\d+/)?.[0] || '';
+    const prefixKey = machinePrefixes[machineId] || '';
+    const comment = machineComments[machineId]?.text || '';
+
+    const candidates = [machineId, normalizedId, numericPart, `${forno}${numericPart}`, `maquina${machineId}`, `maquina${normalizedId}`, prefixKey, comment]
+        .map(normalizeMachineSearchTerm)
+        .filter(Boolean);
+
+    return candidates.some(candidate => candidate.includes(normalizedSearch));
+}
+
+function syncFilterButtonStates() {
+    document.querySelectorAll('.filter-btn[data-forno]').forEach(btn => {
+        btn.classList.toggle('active', activeFilters.fornos.includes(btn.getAttribute('data-forno')));
+    });
+
+    const uiStatusMap = { critico: 'critical', baixo: 'warning', normal: 'normal' };
+    document.querySelectorAll('.filter-btn[data-status]').forEach(btn => {
+        const mapped = uiStatusMap[btn.getAttribute('data-status')] || btn.getAttribute('data-status');
+        btn.classList.toggle('active', activeFilters.status === mapped);
+    });
+
+    const clearStatusBtn = document.getElementById('clearStatusBtn');
+    if (clearStatusBtn) clearStatusBtn.classList.toggle('active', !activeFilters.status);
+
+    const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
+    if (hideMaintenanceBtn) {
+        const active = activeFilters.hideMaintenance === true;
+        hideMaintenanceBtn.classList.toggle('active', active);
+        hideMaintenanceBtn.setAttribute('aria-pressed', String(active));
+        hideMaintenanceBtn.innerHTML = active ? '<i class="fas fa-eye"></i> Mostrar paradas para manutenção' : '<i class="fas fa-eye-slash"></i> Ocultar paradas para manutenção';
+    }
+
+    const searchInput = document.getElementById('machineSearch');
+    if (searchInput && document.activeElement !== searchInput && searchInput.value.trim() !== (activeFilters.search || '')) {
+        searchInput.value = activeFilters.search || '';
+    }
+}
+
 // ================= APLICAR FILTROS (CORRIGIDO) =================
 function applyFilters() {
     console.log("🔍 Aplicando filtros...", activeFilters);
+    syncFilterButtonStates();
     
     // Limpar medidores antigos
     cleanupOldGauges();
@@ -799,9 +859,9 @@ function applyFilters() {
         let shouldInclude = true;
 
         // Filtrar máquinas em manutenção quando solicitado
-        if (activeFilters.hideMaintenance && (machineMaintenance[machineId]?.isInMaintenance || false)) {
+        if (activeFilters.hideMaintenance && isMachineInMaintenance(machineId)) {
             shouldInclude = false;
-            console.log(`❌ Máquina  excluída por manutenção`);
+            console.log(`❌ Máquina ${machineId} excluída por manutenção`);
         }
         
         // Filtrar por forno - VERIFICAR SE O FORNO EXISTE
@@ -831,17 +891,10 @@ function applyFilters() {
             }
         }
         
-        // Filtrar por busca
-        if (activeFilters.search) {
-            const searchTerm = activeFilters.search.toLowerCase();
-            const prefixKey = machinePrefixes[machineId] || '';
-            const comment = machineComments[machineId]?.text || '';
-            const searchIn = `${machineId} ${prefixKey} ${comment}`.toLowerCase();
-            
-            if (!searchIn.includes(searchTerm)) {
-                shouldInclude = false;
-                console.log(`❌ Máquina ${machineId} excluída por filtro de busca`);
-            }
+        // Filtrar por busca de máquina, aceitando A1, a-1, Máquina A1 ou apenas 1.
+        if (!matchesMachineSearch(machineId)) {
+            shouldInclude = false;
+            console.log(`❌ Máquina ${machineId} excluída por filtro de busca`);
         }
         
         if (shouldInclude) {
@@ -1518,7 +1571,8 @@ function setupEventListeners() {
     document.querySelectorAll('.filter-btn[data-forno]').forEach(btn => {
         if (btn.dataset.bound) return;
         btn.dataset.bound = 'true';
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
             const forno = btn.getAttribute('data-forno');
             const index = activeFilters.fornos.indexOf(forno);
             if (index >= 0) { activeFilters.fornos.splice(index, 1); btn.classList.remove('active'); }
@@ -1541,7 +1595,8 @@ function setupEventListeners() {
     const clearFornoBtn = document.getElementById('clearFornoBtn');
     if (clearFornoBtn && !clearFornoBtn.dataset.bound) {
         clearFornoBtn.dataset.bound = 'true';
-        clearFornoBtn.addEventListener('click', () => {
+        clearFornoBtn.addEventListener('click', (event) => {
+            event.preventDefault();
             activeFilters.fornos = [];
             document.querySelectorAll('.filter-btn[data-forno]').forEach(btn => btn.classList.remove('active'));
             applyFilters();
@@ -1550,7 +1605,8 @@ function setupEventListeners() {
     const clearStatusBtn = document.getElementById('clearStatusBtn');
     if (clearStatusBtn && !clearStatusBtn.dataset.bound) {
         clearStatusBtn.dataset.bound = 'true';
-        clearStatusBtn.addEventListener('click', () => {
+        clearStatusBtn.addEventListener('click', (event) => {
+            event.preventDefault();
             activeFilters.status = null;
             document.querySelectorAll('.filter-btn[data-status]').forEach(btn => btn.classList.remove('active'));
             applyFilters();
@@ -1559,7 +1615,8 @@ function setupEventListeners() {
     const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
     if (hideMaintenanceBtn && !hideMaintenanceBtn.dataset.bound) {
         hideMaintenanceBtn.dataset.bound = 'true';
-        hideMaintenanceBtn.addEventListener('click', () => {
+        hideMaintenanceBtn.addEventListener('click', (event) => {
+            event.preventDefault();
             activeFilters.hideMaintenance = !activeFilters.hideMaintenance;
             hideMaintenanceBtn.classList.toggle('active', activeFilters.hideMaintenance);
             hideMaintenanceBtn.setAttribute('aria-pressed', String(activeFilters.hideMaintenance));
@@ -1684,7 +1741,7 @@ function clearAllFilters() {
         activeFilters.hideMaintenance = false;
     }
     const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
-    if (hideMaintenanceBtn) { hideMaintenanceBtn.setAttribute('aria-pressed', 'false'); }
+    if (hideMaintenanceBtn) { hideMaintenanceBtn.setAttribute('aria-pressed', 'false'); hideMaintenanceBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Ocultar paradas para manutenção'; }
     
     // Remover active de todos os botões de filtro
     document.querySelectorAll('.filter-btn').forEach(btn => {
