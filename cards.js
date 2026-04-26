@@ -1496,7 +1496,72 @@ function setupEventListeners() {
         }
     });
     
-    console.log("✅ Event listeners configurados");
+    // Botão Filtros: abre/fecha a barra de filtros.
+    const filtersBtn = document.getElementById('filtersBtn');
+    const filtersBar = document.getElementById('filtersBar');
+    if (filtersBtn && filtersBar && !filtersBtn.dataset.bound) {
+        filtersBtn.dataset.bound = 'true';
+        filtersBtn.addEventListener('click', () => {
+            filtersBar.classList.toggle('active');
+            filtersBtn.classList.toggle('active', filtersBar.classList.contains('active'));
+        });
+    }
+    document.querySelectorAll('.filter-btn[data-forno]').forEach(btn => {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = 'true';
+        btn.addEventListener('click', () => {
+            const forno = btn.getAttribute('data-forno');
+            const index = activeFilters.fornos.indexOf(forno);
+            if (index >= 0) { activeFilters.fornos.splice(index, 1); btn.classList.remove('active'); }
+            else { activeFilters.fornos.push(forno); btn.classList.add('active'); }
+            applyFilters();
+        });
+    });
+    const statusMap = { critico: 'critical', baixo: 'warning', normal: 'normal' };
+    document.querySelectorAll('.filter-btn[data-status]').forEach(btn => {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = 'true';
+        btn.addEventListener('click', () => {
+            const status = statusMap[btn.getAttribute('data-status')] || btn.getAttribute('data-status');
+            document.querySelectorAll('.filter-btn[data-status]').forEach(item => item.classList.remove('active'));
+            if (activeFilters.status === status) { activeFilters.status = null; btn.classList.remove('active'); }
+            else { activeFilters.status = status; btn.classList.add('active'); }
+            applyFilters();
+        });
+    });
+    const clearFornoBtn = document.getElementById('clearFornoBtn');
+    if (clearFornoBtn && !clearFornoBtn.dataset.bound) {
+        clearFornoBtn.dataset.bound = 'true';
+        clearFornoBtn.addEventListener('click', () => {
+            activeFilters.fornos = [];
+            document.querySelectorAll('.filter-btn[data-forno]').forEach(btn => btn.classList.remove('active'));
+            applyFilters();
+        });
+    }
+    const clearStatusBtn = document.getElementById('clearStatusBtn');
+    if (clearStatusBtn && !clearStatusBtn.dataset.bound) {
+        clearStatusBtn.dataset.bound = 'true';
+        clearStatusBtn.addEventListener('click', () => {
+            activeFilters.status = null;
+            document.querySelectorAll('.filter-btn[data-status]').forEach(btn => btn.classList.remove('active'));
+            applyFilters();
+        });
+    }
+    const searchInput = document.getElementById('machineSearch');
+    if (searchInput && !searchInput.dataset.bound) {
+        searchInput.dataset.bound = 'true';
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => { activeFilters.search = searchInput.value.trim(); applyFilters(); }, 180);
+        });
+    }
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn && !refreshBtn.dataset.bound) {
+        refreshBtn.dataset.bound = 'true';
+        refreshBtn.addEventListener('click', refreshData);
+    }
+
 }
 
 // ================= FUNÇÕES AUXILIARES =================
