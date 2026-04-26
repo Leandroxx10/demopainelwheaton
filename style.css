@@ -1730,3 +1730,17 @@ body.compact-mode .machine-card.maintenance {
         min-width: 220px;
     }
 }
+
+
+/* Correção robusta da abertura do painel de filtros */
+.filters-bar.active,
+#filtersBar.active {
+    display: block !important;
+}
+
+/* Botão de ocultar manutenção dentro dos filtros */
+#hideMaintenanceBtn.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}

@@ -134,8 +134,40 @@
     updateCompactCards();
   }
 
+
+  function initFilterToggleFallback() {
+    const btn = qs('#filtersBtn');
+    const bar = qs('#filtersBar');
+    if (!btn || !bar) return;
+
+    function toggleFilters(force) {
+      const shouldOpen = typeof force === 'boolean' ? force : !bar.classList.contains('active');
+      bar.classList.toggle('active', shouldOpen);
+      bar.style.display = shouldOpen ? 'block' : 'none';
+      btn.classList.toggle('active', shouldOpen);
+      btn.setAttribute('aria-expanded', String(shouldOpen));
+      document.body.classList.toggle('filters-active', shouldOpen);
+    }
+
+    window.WMDashboardFilters = { toggle: toggleFilters, open: () => toggleFilters(true), close: () => toggleFilters(false) };
+
+    if (!btn.dataset.wmFilterFixed) {
+      btn.dataset.wmFilterFixed = 'true';
+      btn.setAttribute('aria-controls', 'filtersBar');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        toggleFilters();
+      }, true);
+    }
+
+    if (!bar.classList.contains('active')) bar.style.display = 'none';
+  }
+
   function init() {
     initThemeButton();
+    initFilterToggleFallback();
     initCompactButton();
     observeCards();
   }

@@ -12,7 +12,8 @@ let machineMaintenance = {};
 let activeFilters = {
     fornos: [],
     status: null,
-    search: ''
+    search: '',
+    hideMaintenance: false
 };
 
 // Elementos DOM
@@ -51,7 +52,8 @@ function initCardsDashboard() {
     activeFilters = {
         fornos: [],
         status: null,
-        search: ''
+        search: '',
+        hideMaintenance: false
     };
     
     // Mostrar mensagem de carregamento
@@ -795,6 +797,12 @@ function applyFilters() {
     Object.keys(allMachinesData).forEach(machineId => {
         const machineData = allMachinesData[machineId];
         let shouldInclude = true;
+
+        // Filtrar máquinas em manutenção quando solicitado
+        if (activeFilters.hideMaintenance && (machineMaintenance[machineId]?.isInMaintenance || false)) {
+            shouldInclude = false;
+            console.log(`❌ Máquina  excluída por manutenção`);
+        }
         
         // Filtrar por forno - VERIFICAR SE O FORNO EXISTE
         if (activeFilters.fornos.length > 0) {
@@ -849,7 +857,8 @@ function applyFilters() {
     // Verificar se há filtros ativos
     const hasFilters = activeFilters.fornos.length > 0 || 
                       activeFilters.status !== null || 
-                      activeFilters.search !== '';
+                      activeFilters.search !== '' ||
+                      activeFilters.hideMaintenance === true;
     
     if (hasFilters) {
         // Usar modo tradicional com filtros
@@ -1547,6 +1556,16 @@ function setupEventListeners() {
             applyFilters();
         });
     }
+    const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
+    if (hideMaintenanceBtn && !hideMaintenanceBtn.dataset.bound) {
+        hideMaintenanceBtn.dataset.bound = 'true';
+        hideMaintenanceBtn.addEventListener('click', () => {
+            activeFilters.hideMaintenance = !activeFilters.hideMaintenance;
+            hideMaintenanceBtn.classList.toggle('active', activeFilters.hideMaintenance);
+            hideMaintenanceBtn.setAttribute('aria-pressed', String(activeFilters.hideMaintenance));
+            applyFilters();
+        });
+    }
     const searchInput = document.getElementById('machineSearch');
     if (searchInput && !searchInput.dataset.bound) {
         searchInput.dataset.bound = 'true';
@@ -1662,7 +1681,10 @@ function clearAllFilters() {
         activeFilters.fornos = [];
         activeFilters.status = null;
         activeFilters.search = '';
+        activeFilters.hideMaintenance = false;
     }
+    const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
+    if (hideMaintenanceBtn) { hideMaintenanceBtn.setAttribute('aria-pressed', 'false'); }
     
     // Remover active de todos os botões de filtro
     document.querySelectorAll('.filter-btn').forEach(btn => {

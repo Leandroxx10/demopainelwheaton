@@ -52,7 +52,7 @@
                 <button class="btn" id="refreshBtn">
                     <i class="fas fa-sync-alt"></i> Atualizar
                 </button>
-                <button class="btn" id="filtersBtn">
+                <button class="btn" id="filtersBtn" type="button" onclick="window.WMDashboardFilters && window.WMDashboardFilters.toggle()">
                     <i class="fas fa-filter"></i> Filtros
                 </button>
                 <button class="btn" id="compactModeBtn" aria-pressed="false">
@@ -92,6 +92,14 @@
                         <button class="filter-btn" data-status="baixo">Baixo Estoque</button>
                         <button class="filter-btn" data-status="normal">Bem Abastecido</button>
                         <button class="filter-btn" id="clearStatusBtn">Todos</button>
+                    </div>
+                </div>
+                
+                <!-- Filtro por manutenção -->
+                <div class="filter-section">
+                    <label><i class="fas fa-tools"></i> Manutenção:</label>
+                    <div class="filter-buttons">
+                        <button class="filter-btn" id="hideMaintenanceBtn" type="button" aria-pressed="false">Ocultar paradas para manutenção</button>
                     </div>
                 </div>
                 
@@ -201,7 +209,6 @@
     <script src="auth.js"></script>
     <script src="cards.js"></script>
     <script src="fix-maintenance-filter.js"></script>
-    <script src="f-maintenance-filter.js.js"></script>
     <script src="image-zoom.js"></script>
     <script src="script.js"></script>
     <script src="realtime-firebase-sync.js?v=21"></script>
