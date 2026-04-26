@@ -1882,3 +1882,303 @@ function debugFilters() {
 
 // Exportar para depuração
 window.debugFilters = debugFilters;
+
+// ============================================================================
+// FILTROS PROFISSIONAIS DEFINITIVOS - Dashboard Cartões Produção
+// Mantém todo o restante do arquivo original e substitui apenas a lógica de filtros.
+// ============================================================================
+(function installProfessionalMachineFilters() {
+    'use strict';
+
+    function normalizeText(value) {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+
+    function machineNumber(machineId) {
+        const match = String(machineId || '').match(/\d+/);
+        return match ? match[0] : '';
+    }
+
+    function getMachineFornoProfessional(machineId) {
+        const id = String(machineId || '').trim().toUpperCase();
+        if (!id) return null;
+        if (/^A\d+/.test(id) || id.startsWith('A')) return 'A';
+        if (/^B\d+/.test(id) || id.startsWith('B')) return 'B';
+        if (/^C\d+/.test(id) || id.startsWith('C')) return 'C';
+        const n = parseInt(id, 10);
+        if (!Number.isNaN(n) && n >= 10 && n <= 15) return 'D';
+        if (/^D\d+/.test(id) || id.startsWith('D')) return 'D';
+        return null;
+    }
+
+    function getMachineMaintenanceProfessional(machineId) {
+        const item = machineMaintenance && machineMaintenance[machineId];
+        if (!item) return false;
+        if (item === true) return true;
+        const value = String(item.status || item.situacao || item.state || '').toLowerCase();
+        return item.isInMaintenance === true || item.manutencao === true || item.emManutencao === true || value.includes('maintenance') || value.includes('manutencao') || value.includes('manutenção');
+    }
+
+    function getMachineStatusProfessional(machineId, machineData) {
+        if (getMachineMaintenanceProfessional(machineId)) return 'maintenance';
+        const limits = machineLimits[machineId] || DEFAULT_LIMITS;
+        return getMachineStatusWithLimits(machineData || {}, limits);
+    }
+
+    function matchesSearchProfessional(machineId, machineData) {
+        const term = normalizeText(activeFilters.search || '');
+        if (!term) return true;
+
+        const id = String(machineId || '');
+        const forno = getMachineFornoProfessional(machineId) || '';
+        const number = machineNumber(machineId);
+        const prefix = machinePrefixes[machineId] || '';
+        const comment = machineComments[machineId]?.text || '';
+
+        const candidates = [
+            id,
+            number,
+            forno,
+            forno + number,
+            'maquina' + id,
+            'maquina' + forno + number,
+            'máquina' + id,
+            prefix,
+            comment,
+            machineData?.prefixo,
+            machineData?.nome,
+            machineData?.name
+        ].map(normalizeText).filter(Boolean);
+
+        return candidates.some(candidate => candidate.includes(term));
+    }
+
+    function hasActiveProfessionalFilters() {
+        return Boolean(
+            (activeFilters.fornos && activeFilters.fornos.length) ||
+            activeFilters.status ||
+            (activeFilters.search && activeFilters.search.trim()) ||
+            activeFilters.hideMaintenance === true
+        );
+    }
+
+    function syncProfessionalFilterUI() {
+        document.querySelectorAll('.filter-btn[data-forno]').forEach(button => {
+            const forno = button.getAttribute('data-forno');
+            button.classList.toggle('active', activeFilters.fornos.includes(forno));
+            button.setAttribute('aria-pressed', String(activeFilters.fornos.includes(forno)));
+        });
+
+        const statusUiToInternal = { critico: 'critical', baixo: 'warning', normal: 'normal' };
+        document.querySelectorAll('.filter-btn[data-status]').forEach(button => {
+            const raw = button.getAttribute('data-status');
+            const status = statusUiToInternal[raw] || raw;
+            const active = activeFilters.status === status;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+        });
+
+        const clearStatusBtn = document.getElementById('clearStatusBtn');
+        if (clearStatusBtn) {
+            const active = !activeFilters.status;
+            clearStatusBtn.classList.toggle('active', active);
+            clearStatusBtn.setAttribute('aria-pressed', String(active));
+        }
+
+        const hideMaintenanceBtn = document.getElementById('hideMaintenanceBtn');
+        if (hideMaintenanceBtn) {
+            const hidden = activeFilters.hideMaintenance === true;
+            hideMaintenanceBtn.classList.toggle('active', hidden);
+            hideMaintenanceBtn.setAttribute('aria-pressed', String(hidden));
+            hideMaintenanceBtn.innerHTML = hidden
+                ? '<i class="fas fa-eye"></i> Mostrar paradas para manutenção'
+                : '<i class="fas fa-eye-slash"></i> Ocultar paradas para manutenção';
+        }
+
+        const searchInput = document.getElementById('machineSearch');
+        if (searchInput && document.activeElement !== searchInput) {
+            searchInput.value = activeFilters.search || '';
+        }
+    }
+
+    function renderProfessionalFilteredCards(data) {
+        const fornoSections = document.getElementById('fornoSections');
+        const container = document.getElementById('cardsContainer');
+        if (fornoSections) fornoSections.style.display = 'none';
+        if (!container) return;
+
+        container.style.display = 'grid';
+        container.classList.remove('horizontal-view');
+        generateMachineCards(data);
+
+        setTimeout(() => {
+            if (typeof recreateFilteredGauges === 'function') recreateFilteredGauges();
+            if (typeof window.__wmUpdateCompactCards === 'function') window.__wmUpdateCompactCards();
+        }, 120);
+    }
+
+    function renderProfessionalUnfiltered() {
+        const fornoSections = document.getElementById('fornoSections');
+        const container = document.getElementById('cardsContainer');
+        if (container) container.style.display = 'none';
+        if (fornoSections) fornoSections.style.display = '';
+        generateFornoSections();
+        setTimeout(() => {
+            if (typeof window.__wmUpdateCompactCards === 'function') window.__wmUpdateCompactCards();
+        }, 120);
+    }
+
+    window.applyFilters = applyFilters = function applyFiltersProfessional() {
+        if (!activeFilters || typeof activeFilters !== 'object') {
+            activeFilters = { fornos: [], status: null, search: '', hideMaintenance: false };
+        }
+        if (!Array.isArray(activeFilters.fornos)) activeFilters.fornos = [];
+
+        const filtered = {};
+        Object.keys(allMachinesData || {}).forEach(machineId => {
+            const machineData = allMachinesData[machineId] || {};
+            const forno = getMachineFornoProfessional(machineId);
+            const status = getMachineStatusProfessional(machineId, machineData);
+            const inMaintenance = status === 'maintenance';
+
+            if (activeFilters.fornos.length && !activeFilters.fornos.includes(forno)) return;
+            if (activeFilters.status && status !== activeFilters.status) return;
+            if (activeFilters.hideMaintenance && inMaintenance) return;
+            if (!matchesSearchProfessional(machineId, machineData)) return;
+
+            filtered[machineId] = machineData;
+        });
+
+        filteredMachinesData = filtered;
+        syncProfessionalFilterUI();
+
+        if (hasActiveProfessionalFilters()) renderProfessionalFilteredCards(filtered);
+        else renderProfessionalUnfiltered();
+
+        updateStatistics();
+        console.log('[WMoldes] Filtros aplicados:', activeFilters, Object.keys(filtered).length, 'máquinas');
+    };
+
+    window.getFornoFromMachineId = getFornoFromMachineId = getMachineFornoProfessional;
+    window.isMachineInMaintenance = isMachineInMaintenance = getMachineMaintenanceProfessional;
+    window.matchesMachineSearch = matchesMachineSearch = function(machineId) {
+        return matchesSearchProfessional(machineId, allMachinesData[machineId] || {});
+    };
+
+    function bindProfessionalFilterControls() {
+        const filtersBtn = document.getElementById('filtersBtn');
+        const filtersBar = document.getElementById('filtersBar');
+        if (filtersBtn && filtersBar && !filtersBtn.dataset.professionalFilterToggle) {
+            filtersBtn.dataset.professionalFilterToggle = 'true';
+            filtersBtn.setAttribute('aria-controls', 'filtersBar');
+            filtersBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                const open = !(filtersBar.classList.contains('active') || filtersBar.style.display === 'block');
+                filtersBar.classList.toggle('active', open);
+                filtersBar.style.display = open ? 'block' : 'none';
+                filtersBtn.classList.toggle('active', open);
+                filtersBtn.setAttribute('aria-expanded', String(open));
+            }, true);
+        }
+
+        const filterBar = document.getElementById('filtersBar');
+        if (filterBar && !filterBar.dataset.professionalDelegated) {
+            filterBar.dataset.professionalDelegated = 'true';
+            filterBar.addEventListener('click', function(event) {
+                const button = event.target.closest('button');
+                if (!button || !filterBar.contains(button)) return;
+
+                const forno = button.getAttribute('data-forno');
+                const statusRaw = button.getAttribute('data-status');
+
+                if (forno) {
+                    event.preventDefault();
+                    const index = activeFilters.fornos.indexOf(forno);
+                    if (index >= 0) activeFilters.fornos.splice(index, 1);
+                    else activeFilters.fornos.push(forno);
+                    applyFilters();
+                    return;
+                }
+
+                if (button.id === 'clearFornoBtn') {
+                    event.preventDefault();
+                    activeFilters.fornos = [];
+                    applyFilters();
+                    return;
+                }
+
+                if (statusRaw) {
+                    event.preventDefault();
+                    const map = { critico: 'critical', baixo: 'warning', normal: 'normal' };
+                    const status = map[statusRaw] || statusRaw;
+                    activeFilters.status = activeFilters.status === status ? null : status;
+                    applyFilters();
+                    return;
+                }
+
+                if (button.id === 'clearStatusBtn') {
+                    event.preventDefault();
+                    activeFilters.status = null;
+                    applyFilters();
+                    return;
+                }
+
+                if (button.id === 'hideMaintenanceBtn') {
+                    event.preventDefault();
+                    activeFilters.hideMaintenance = !activeFilters.hideMaintenance;
+                    applyFilters();
+                }
+            }, true);
+        }
+
+        const searchInput = document.getElementById('machineSearch');
+        if (searchInput && !searchInput.dataset.professionalSearch) {
+            searchInput.dataset.professionalSearch = 'true';
+            let timer = null;
+            searchInput.addEventListener('input', function() {
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                    activeFilters.search = searchInput.value.trim();
+                    applyFilters();
+                }, 80);
+            });
+            searchInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    searchInput.value = '';
+                    activeFilters.search = '';
+                    applyFilters();
+                }
+            });
+        }
+
+        syncProfessionalFilterUI();
+    }
+
+    const previousSetupEventListeners = setupEventListeners;
+    setupEventListeners = function setupEventListenersProfessional() {
+        if (typeof previousSetupEventListeners === 'function') previousSetupEventListeners();
+        bindProfessionalFilterControls();
+    };
+
+    const previousClearAllFilters = window.clearAllFilters || clearAllFilters;
+    window.clearAllFilters = clearAllFilters = function clearAllFiltersProfessional() {
+        activeFilters.fornos = [];
+        activeFilters.status = null;
+        activeFilters.search = '';
+        activeFilters.hideMaintenance = false;
+        const searchInput = document.getElementById('machineSearch');
+        if (searchInput) searchInput.value = '';
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        applyFilters();
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindProfessionalFilterControls);
+    } else {
+        bindProfessionalFilterControls();
+    }
+})();

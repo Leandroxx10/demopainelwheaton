@@ -89,6 +89,7 @@
   function updateCompactCards() {
     qsa('.machine-card').forEach(ensureCompactMetrics);
   }
+  window.__wmUpdateCompactCards = updateCompactCards;
 
   function applyCompactMode(active) {
     document.body.classList.toggle('compact-mode', active);
@@ -166,7 +167,7 @@
   }
 
   function init() {
-    initThemeButton();
+    // Filtros controlados pelo cards.js para evitar conflito de eventos.
     initFilterToggleFallback();
     initCompactButton();
     observeCards();
