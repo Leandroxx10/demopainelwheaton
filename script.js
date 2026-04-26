@@ -209,12 +209,34 @@ function carregarConfiguracoes() {
 // CARREGAR PREFIXOS
 // ====================================================
 
-async function carregarPrefixos() {
+function carregarPrefixos() {
     try {
-        prefixos = await getPrefixosFromFirebase();
-        console.log("✅ Prefixos carregados:", prefixos.length);
+        if (typeof db === 'undefined') {
+            console.warn("⚠️ Firebase ainda não inicializado para carregar prefixos");
+            prefixos = [];
+            return;
+        }
+
+        // Listener em tempo real: quando um prefixo detalhado for criado/editado/removido
+        // em qualquer um dos dois projetos, os selects e os cards são atualizados sem refresh.
+        db.ref("prefixDatabase").on("value", snapshot => {
+            try {
+                prefixos = buildPrefixList(snapshot.val() || {});
+                console.log("✅ Prefixos detalhados sincronizados:", prefixos.length);
+
+                if (typeof dadosMaquinas !== 'undefined' && Object.keys(dadosMaquinas || {}).length > 0) {
+                    criarPainel(dadosMaquinas);
+                }
+            } catch (innerError) {
+                console.error("❌ Erro ao processar prefixos:", innerError);
+                prefixos = [];
+            }
+        }, error => {
+            console.error("❌ Erro ao sincronizar prefixos:", error);
+            prefixos = [];
+        });
     } catch (error) {
-        console.error("❌ Erro ao carregar prefixos:", error);
+        console.error("❌ Erro ao iniciar sincronização de prefixos:", error);
         prefixos = [];
     }
 }

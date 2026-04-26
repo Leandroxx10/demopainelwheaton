@@ -90,17 +90,29 @@ function showLoadingMessage() {
 
 // ================= CARREGAR DADOS ADICIONAIS =================
 function loadMachinePrefixes() {
-    if (typeof adminConfigRef === 'undefined') return;
-    
-    adminConfigRef.child("prefixes").on("value", (snapshot) => {
-        machinePrefixes = snapshot.val() || {};
-        console.log("✅ Prefixos carregados:", Object.keys(machinePrefixes).length);
-        
+    if (typeof db === 'undefined') return;
+
+    // Fonte única e compartilhada entre o Painel e o Abastecedor:
+    // maquinas/{ID_DA_MAQUINA}/prefixo
+    db.ref("maquinas").on("value", (snapshot) => {
+        const maquinas = snapshot.val() || {};
+        const syncedPrefixes = {};
+
+        Object.keys(maquinas).forEach(machineId => {
+            const prefixo = maquinas[machineId]?.prefixo;
+            if (prefixo !== undefined && prefixo !== null && String(prefixo).trim() !== '') {
+                syncedPrefixes[machineId] = String(prefixo).trim();
+            }
+        });
+
+        machinePrefixes = syncedPrefixes;
+        console.log("✅ Prefixos de máquinas sincronizados:", Object.keys(machinePrefixes).length);
+
         if (Object.keys(allMachinesData).length > 0) {
             applyFilters();
         }
     }, (error) => {
-        console.error("❌ Erro ao carregar prefixos:", error);
+        console.error("❌ Erro ao sincronizar prefixos das máquinas:", error);
     });
 }
 
@@ -385,7 +397,7 @@ function createMachineCardHTML(machineId, machineData) {
     const maintenanceReason = machineMaintenance[machineId]?.reason || "";
     const status = isInMaintenance ? 'maintenance' : getMachineStatusWithLimits(machineData, limits);
     const forno = getFornoFromMachineId(machineId);
-    const prefixKey = machinePrefixes[machineId] || '';
+    const prefixKey = machineData?.prefixo || machinePrefixes[machineId] || '';
     const comment = machineComments[machineId] || {};
     
     // Se estiver em manutenção, mostrar card especial
@@ -580,7 +592,7 @@ function createMachineCard(machineId, machineData) {
     const maintenanceReason = machineMaintenance[machineId]?.reason || "";
     const status = isInMaintenance ? 'maintenance' : getMachineStatusWithLimits(machineData, limits);
     const forno = getFornoFromMachineId(machineId);
-    const prefixKey = machinePrefixes[machineId] || '';
+    const prefixKey = machineData?.prefixo || machinePrefixes[machineId] || '';
     const comment = machineComments[machineId] || {};
     
     // Se estiver em manutenção, criar card especial
@@ -806,7 +818,7 @@ function matchesMachineSearch(machineId) {
     const normalizedId = normalizeMachineSearchTerm(machineId);
     const forno = getFornoFromMachineId(machineId) || '';
     const numericPart = String(machineId).match(/\d+/)?.[0] || '';
-    const prefixKey = machinePrefixes[machineId] || '';
+    const prefixKey = machineData?.prefixo || machinePrefixes[machineId] || '';
     const comment = machineComments[machineId]?.text || '';
 
     const candidates = [machineId, normalizedId, numericPart, `${forno}${numericPart}`, `maquina${machineId}`, `maquina${normalizedId}`, prefixKey, comment]
@@ -1088,7 +1100,7 @@ async function openMachineDetails(machineId) {
     const maintenanceReason = machineMaintenance[machineId]?.reason || "";
     const status = isInMaintenance ? 'maintenance' : getMachineStatusWithLimits(machineData, limits);
     const forno = getFornoFromMachineId(machineId);
-    const prefixKey = machinePrefixes[machineId] || '';
+    const prefixKey = machineData?.prefixo || machinePrefixes[machineId] || '';
     const comment = machineComments[machineId] || {};
     const imageUrl = machineImages[machineId]?.url || '';
     
@@ -1936,7 +1948,7 @@ window.debugFilters = debugFilters;
         const id = String(machineId || '');
         const forno = getMachineFornoProfessional(machineId) || '';
         const number = machineNumber(machineId);
-        const prefix = machinePrefixes[machineId] || '';
+        const prefix = machineData?.prefixo || machinePrefixes[machineId] || '';
         const comment = machineComments[machineId]?.text || '';
 
         const candidates = [
