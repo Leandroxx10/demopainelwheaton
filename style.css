@@ -1744,3 +1744,23 @@ body.compact-mode .machine-card.maintenance {
     color: #fff;
     border-color: var(--primary);
 }
+
+/* Manutenção compartilhada */
+.maintenance-toggle-btn {
+    min-width: 42px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: #64748b;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+}
+.maintenance-toggle-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); background: rgba(100,116,139,.12); }
+.maintenance-toggle-btn.active { background: #64748b; color: #fff; border-color: #64748b; }
+.maquina.maintenance { border-color: #64748b; background: rgba(100,116,139,.08); }
+.maquina.maintenance .linha, .maquina.maintenance .alert-message { opacity: .55; }
+.maintenance-message { margin: 10px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(100,116,139,.14); color: var(--text); font-weight: 700; display: flex; align-items: center; gap: 8px; }
