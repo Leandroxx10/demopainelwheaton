@@ -394,9 +394,12 @@ function criarPainel(maquinas) {
                                 ${currentPrefixDisplay || currentPrefixo || 'Selecione um prefixo'}
                             </div>
                             <div class="select-items" id="select-${id}">
-                                <div class="select-search-container">
-                                    <input type="text" class="select-search" placeholder="Pesquisar prefixo..." 
-                                           oninput="filtrarOpcoes('${id}', this.value)">
+                                <div class="select-search-container prefix-create-row">
+                                    <input type="text" id="prefix-search-${id}" class="select-search" placeholder="Pesquisar prefixo..." 
+                                           oninput="filtrarOpcoes('${id}', this.value)" onkeydown="criarPrefixoComEnter(event, '${id}')">
+                                    <button type="button" class="prefix-add-btn" onclick="criarPrefixoPeloFiltro('${id}', event)" title="Criar prefixo principal e vincular à máquina">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
                                 </div>
                                 ${prefixos.map(pref => `
                                     <div onclick="selecionarPrefixo('${id}', '${pref.id}')" 
@@ -719,15 +722,82 @@ function toggleCustomSelect(maquinaId) {
 
 function filtrarOpcoes(maquinaId, termo) {
     const select = document.getElementById(`select-${maquinaId}`);
-    const itens = select.querySelectorAll('div:not(.select-search-container)');
+    if (!select) return;
+    const itens = select.querySelectorAll(':scope > div:not(.select-search-container)');
+    const busca = String(termo || '').toLowerCase();
     
     itens.forEach(item => {
-        if (item.textContent.toLowerCase().includes(termo.toLowerCase())) {
+        if (item.textContent.toLowerCase().includes(busca)) {
             item.style.display = 'block';
         } else {
             item.style.display = 'none';
         }
     });
+}
+
+function normalizarNovoPrefixo(valor) {
+    return String(valor || '').trim().replace(/\s+/g, ' ');
+}
+
+function validarChaveFirebasePrefixo(prefixo) {
+    return prefixo && !/[.#$\[\]\/]/.test(prefixo);
+}
+
+function criarPrefixoComEnter(event, maquinaId) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        criarPrefixoPeloFiltro(maquinaId, event);
+    }
+}
+
+async function criarPrefixoPeloFiltro(maquinaId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    const input = document.getElementById(`prefix-search-${maquinaId}`);
+    const prefixoId = normalizarNovoPrefixo(input ? input.value : '');
+
+    if (!prefixoId) {
+        mostrarNotificacao('Digite o prefixo no campo de pesquisa para criar.', 'warning');
+        return;
+    }
+
+    if (!validarChaveFirebasePrefixo(prefixoId)) {
+        mostrarNotificacao('O prefixo não pode conter os caracteres . # $ [ ] /', 'error');
+        return;
+    }
+
+    try {
+        const ref = db.ref(`prefixDatabase/${prefixoId}`);
+        const snap = await ref.once('value');
+
+        if (!snap.exists()) {
+            await ref.set({
+                nome: prefixoId,
+                displayName: prefixoId,
+                prefixoDetalhado: prefixoId,
+                criadoEm: Date.now(),
+                origem: 'atalho_card_maquina'
+            });
+        }
+
+        if (!prefixos.some(pref => pref.id === prefixoId)) {
+            prefixos.push({
+                id: prefixoId,
+                nome: prefixoId,
+                displayName: prefixoId,
+                prefixoDetalhado: prefixoId
+            });
+        }
+
+        selecionarPrefixo(maquinaId, prefixoId);
+        mostrarNotificacao(snap.exists() ? `Prefixo vinculado: ${prefixoId}` : `Prefixo criado e vinculado: ${prefixoId}`, 'success');
+    } catch (error) {
+        console.error('❌ Erro ao criar prefixo:', error);
+        mostrarNotificacao('Erro ao criar/vincular prefixo.', 'error');
+    }
 }
 
 function selecionarPrefixo(maquinaId, prefixoId) {

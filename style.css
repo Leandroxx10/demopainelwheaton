@@ -1764,3 +1764,33 @@ body.compact-mode .machine-card.maintenance {
 .maquina.maintenance { border-color: #64748b; background: rgba(100,116,139,.08); }
 .maquina.maintenance .linha, .maquina.maintenance .alert-message { opacity: .55; }
 .maintenance-message { margin: 10px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(100,116,139,.14); color: var(--text); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+/* Atalho para criar prefixo principal pelo seletor do card */
+.prefix-create-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.prefix-create-row .select-search {
+    flex: 1;
+    min-width: 0;
+}
+.prefix-add-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border, #d9e2ef);
+    border-radius: 10px;
+    background: var(--primary, #0ea5e9);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+    flex: 0 0 auto;
+}
+.prefix-add-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md, 0 6px 14px rgba(15, 23, 42, .16));
+}
+.prefix-add-btn:active { transform: translateY(0); }
