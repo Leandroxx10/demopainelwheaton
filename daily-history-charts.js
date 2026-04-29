@@ -7,6 +7,31 @@ if (typeof window.DAILY_HISTORY_CHARTS_LOADED === 'undefined') {
     
     window.DAILY_HISTORY_CHARTS_LOADED = true;
     
+
+    const WM_TIME_ZONE = 'America/Sao_Paulo';
+    function wmSaoPauloParts(date = new Date()) {
+        return new Intl.DateTimeFormat('pt-BR', {
+            timeZone: WM_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).formatToParts(date).reduce((acc, part) => {
+            if (part.type !== 'literal') acc[part.type] = part.value;
+            return acc;
+        }, {});
+    }
+    function wmSaoPauloISODate(date = new Date()) {
+        const p = wmSaoPauloParts(date);
+        return `${p.year}-${p.month}-${p.day}`;
+    }
+    function wmSaoPauloHour(date = new Date()) {
+        const p = wmSaoPauloParts(date);
+        return Number(p.hour === '24' ? '00' : p.hour);
+    }
+    function wmSaoPauloDateTimeBR(date = new Date()) {
+        const p = wmSaoPauloParts(date);
+        const h = p.hour === '24' ? '00' : p.hour;
+        return `${p.day}/${p.month}/${p.year} ${h}:${p.minute}:${p.second}`;
+    }
+
     let dailyChart = null;
     let currentDailyData = [];
     let currentDailyMachine = '';
@@ -58,43 +83,14 @@ if (typeof window.DAILY_HISTORY_CHARTS_LOADED === 'undefined') {
         console.log("✅ Seção de histórico diário inicializada");
     }
 
-    // ================= HORÁRIO DE SÃO PAULO =================
-    const SAO_PAULO_TZ = 'America/Sao_Paulo';
-
-    function getSaoPauloParts(date = new Date()) {
-        const parts = new Intl.DateTimeFormat('pt-BR', {
-            timeZone: SAO_PAULO_TZ,
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false
-        }).formatToParts(date).reduce((acc, part) => {
-            if (part.type !== 'literal') acc[part.type] = part.value;
-            return acc;
-        }, {});
-        if (parts.hour === '24') parts.hour = '00';
-        return parts;
-    }
-
-    function formatSaoPauloISODate(date = new Date()) {
-        const p = getSaoPauloParts(date);
-        return `${p.year}-${p.month}-${p.day}`;
-    }
-
-    function formatSaoPauloDateTime(timestamp) {
-        return new Intl.DateTimeFormat('pt-BR', {
-            timeZone: SAO_PAULO_TZ,
-            dateStyle: 'short',
-            timeStyle: 'medium'
-        }).format(new Date(Number(timestamp) || Date.now()));
-    }
-
-    function getSaoPauloHour(timestamp) {
-        return parseInt(getSaoPauloParts(new Date(Number(timestamp) || Date.now())).hour, 10) || 0;
+    // ================= OBTER DATA DE SÃO PAULO =================
+    function getSaoPauloDate() {
+        return wmSaoPauloISODate(new Date());
     }
 
     // ================= DEFINIR DATA PADRÃO =================
     function setDefaultDailyDate() {
-        const dateStr = formatSaoPauloISODate();
+        const dateStr = getSaoPauloDate();
         
         const dateInput = document.getElementById('historyDate');
         if (dateInput) {
@@ -148,7 +144,8 @@ if (typeof window.DAILY_HISTORY_CHARTS_LOADED === 'undefined') {
             const lastRecordEl = document.getElementById('lastHistoryRecord');
             
             if (lastRecordEl && data) {
-                lastRecordEl.textContent = formatSaoPauloDateTime(data.timestamp);
+                const date = new Date(data.timestamp);
+                lastRecordEl.textContent = wmSaoPauloDateTimeBR(date);
             } else if (lastRecordEl) {
                 lastRecordEl.textContent = 'Sem registros';
             }
@@ -433,7 +430,8 @@ function filterDataByTimeRange(data, startTime, endTime) {
         // Criar mapa de dados por hora
         const dataByHour = {};
         data.forEach(item => {
-            const hour = getSaoPauloHour(item.timestamp);
+            const date = new Date(item.timestamp);
+            const hour = Number.isFinite(Number(item.horaNum)) ? Number(item.horaNum) : wmSaoPauloHour(date);
             
             if (!dataByHour[hour]) {
                 dataByHour[hour] = {
@@ -841,7 +839,8 @@ function updateDailyTable(data) {
         // Agrupar por hora
         const dataByHour = {};
         currentDailyData.forEach(item => {
-            const hour = getSaoPauloHour(item.timestamp);
+            const date = new Date(item.timestamp);
+            const hour = Number.isFinite(Number(item.horaNum)) ? Number(item.horaNum) : wmSaoPauloHour(date);
             
             if (!dataByHour[hour]) {
                 dataByHour[hour] = {
@@ -897,7 +896,8 @@ function updateDailyTable(data) {
         
         const dataByHour = {};
         currentDailyData.forEach(item => {
-            const hour = getSaoPauloHour(item.timestamp);
+            const date = new Date(item.timestamp);
+            const hour = Number.isFinite(Number(item.horaNum)) ? Number(item.horaNum) : wmSaoPauloHour(date);
             
             if (!dataByHour[hour]) {
                 dataByHour[hour] = {

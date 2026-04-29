@@ -50,15 +50,15 @@
   }
 
 
-  const SAO_PAULO_TZ = 'America/Sao_Paulo';
+  const WM_TIME_ZONE = 'America/Sao_Paulo';
 
   function pad2(v) {
     return String(v).padStart(2, '0');
   }
 
   function getSaoPauloParts(date = new Date()) {
-    const parts = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: SAO_PAULO_TZ,
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: WM_TIME_ZONE,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hour12: false
@@ -66,56 +66,77 @@
       if (part.type !== 'literal') acc[part.type] = part.value;
       return acc;
     }, {});
-
-    if (parts.hour === '24') parts.hour = '00';
-    return parts;
-  }
-
-  function saoPauloDateInfo(timestamp = Date.now()) {
-    const p = getSaoPauloParts(new Date(Number(timestamp) || Date.now()));
-    return {
-      dataBR: `${p.day}/${p.month}/${p.year}`,
-      dataISO: `${p.year}-${p.month}-${p.day}`,
-      hora: `${p.hour}:${p.minute}`,
-      horaNum: parseInt(p.hour, 10) || 0,
-      minutoNum: parseInt(p.minute, 10) || 0
-    };
-  }
-
-  function todayInSaoPauloDate() {
-    const p = getSaoPauloParts(new Date());
-    return new Date(Number(p.year), Number(p.month) - 1, Number(p.day));
   }
 
   function parseBRDate(value) {
-    const [d, m, y] = String(value || '').split('/').map(Number);
+    const text = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      const [y, m, d] = text.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    const [d, m, y] = text.split('/').map(Number);
     if (!d || !m || !y) return null;
     return new Date(y, m - 1, d);
   }
 
   function formatBRDate(date) {
-    return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+    const p = getSaoPauloParts(date);
+    return `${p.day}/${p.month}/${p.year}`;
   }
 
   function formatISODate(date) {
-    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    const p = getSaoPauloParts(date);
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+
+  function brToISO(value) {
+    const text = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    const [d, m, y] = text.split('/');
+    return d && m && y ? `${y}-${m}-${d}` : '';
+  }
+
+  function isoToBR(value) {
+    const text = String(value || '').trim();
+    const [y, m, d] = text.split('-');
+    return y && m && d ? `${d}/${m}/${y}` : '';
   }
 
   function getDateISOFromBR(value) {
-    const d = parseBRDate(value);
-    return d ? formatISODate(d) : '';
+    return brToISO(value);
   }
 
   function addDays(value, days) {
     const d = parseBRDate(value);
     if (!d) return value;
     d.setDate(d.getDate() + days);
-    return formatBRDate(d);
+    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
 
   function toMinutes(time) {
     const [h, m] = String(time || '00:00').split(':').map(Number);
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+  }
+
+  function normalizeDateBR(value) {
+    const text = String(value || '').trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return text;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isoToBR(text);
+    return '';
+  }
+
+  function normalizeHour(record, fallbackDate) {
+    if (record.hora && typeof record.hora === 'string' && record.hora.includes(':')) {
+      const [h, m] = record.hora.split(':').map(Number);
+      return { horaNum: h || 0, minutoNum: m || 0, hora: `${pad2(h || 0)}:${pad2(m || 0)}` };
+    }
+
+    const p = getSaoPauloParts(fallbackDate);
+    return {
+      horaNum: Number(p.hour === '24' ? '00' : p.hour),
+      minutoNum: Number(p.minute),
+      hora: `${p.hour === '24' ? '00' : p.hour}:${p.minute}`
+    };
   }
 
   function getActivePeriod() {
@@ -138,31 +159,32 @@
   }
 
   function recordDateBR(record) {
-    if (record.data) return record.data;
+    const fromData = normalizeDateBR(record.data);
+    if (fromData) return fromData;
 
-    if (record.dataISO) {
-      const [y, m, d] = String(record.dataISO).split('-');
-      if (y && m && d) return `${d}/${m}/${y}`;
-    }
+    const fromISO = normalizeDateBR(record.dataISO);
+    if (fromISO) return fromISO;
 
-    if (record.timestamp) return saoPauloDateInfo(record.timestamp).dataBR;
+    if (record.timestamp) return formatBRDate(new Date(Number(record.timestamp)));
 
     return '';
   }
 
   function normalizeRecord(key, record) {
     const ts = Number(record.timestamp || Date.now());
-    const sp = saoPauloDateInfo(ts);
-    const horaNum = Number.isFinite(record.horaNum) ? Number(record.horaNum) : sp.horaNum;
-    const minutoNum = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : sp.minutoNum;
-    const data = recordDateBR(record) || sp.dataBR;
+    const fallbackDate = new Date(ts);
+    const data = recordDateBR(record);
+    const dataISO = normalizeDateBR(record.dataISO) ? brToISO(normalizeDateBR(record.dataISO)) : getDateISOFromBR(data);
+    const hour = normalizeHour(record, fallbackDate);
+    const horaNum = Number.isFinite(Number(record.horaNum)) ? Number(record.horaNum) : hour.horaNum;
+    const minutoNum = Number.isFinite(Number(record.minutoNum)) ? Number(record.minutoNum) : hour.minutoNum;
 
     return {
       id: key,
       timestamp: ts,
       data,
-      dataISO: record.dataISO || getDateISOFromBR(data) || sp.dataISO,
-      hora: record.hora || `${pad2(horaNum)}:${pad2(minutoNum)}`,
+      dataISO,
+      hora: record.hora && String(record.hora).includes(':') ? String(record.hora).slice(0, 5) : `${pad2(horaNum)}:${pad2(minutoNum)}`,
       horaNum,
       minutoNum,
       molde: Number(record.molde !== undefined ? record.molde : (record.new_molde || 0)),
@@ -314,6 +336,7 @@
 
       datasets.push({
         label,
+        pointEndLabel: key === 'molde' ? 'M' : (key === 'blank' ? 'BL' : ''),
         data: points.map(p => p[field]),
         borderColor: CORES[key],
         backgroundColor: chartType === 'bar' ? `${CORES[key]}80` : 'transparent',
@@ -328,8 +351,48 @@
     addDataset('neckring', 'Neck Rings', 'neckring');
     addDataset('funil', 'Funís', 'funil');
 
+    const endLabelPlugin = {
+      id: 'wmEndLineLabels',
+      afterDatasetsDraw(chartInstance) {
+        if (chartType !== 'line') return;
+        const { ctx, chartArea } = chartInstance;
+        if (!ctx || !chartArea) return;
+
+        chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
+          const text = dataset.pointEndLabel;
+          if (!text) return;
+
+          const meta = chartInstance.getDatasetMeta(datasetIndex);
+          if (!meta || meta.hidden) return;
+
+          let index = -1;
+          for (let i = dataset.data.length - 1; i >= 0; i--) {
+            const value = dataset.data[i];
+            if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+              index = i;
+              break;
+            }
+          }
+          if (index < 0 || !meta.data[index]) return;
+
+          const point = meta.data[index];
+          const x = Math.min(point.x + 10, chartArea.right - 8);
+          const y = Math.max(chartArea.top + 12, Math.min(point.y, chartArea.bottom - 8));
+
+          ctx.save();
+          ctx.font = '700 13px Arial, sans-serif';
+          ctx.fillStyle = dataset.borderColor || '#111827';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, x, y);
+          ctx.restore();
+        });
+      }
+    };
+
     chart = new Chart(canvas.getContext('2d'), {
       type: chartType,
+      plugins: [endLabelPlugin],
       data: {
         labels: points.map(p => p.label),
         datasets
@@ -516,14 +579,14 @@
     if (!select) return;
 
     select.innerHTML = '';
-    const today = todayInSaoPauloDate();
-    today.setHours(0, 0, 0, 0);
+    const todayBR = formatBRDate(new Date());
+    const today = parseBRDate(todayBR);
 
     for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
 
-      const value = formatBRDate(d);
+      const value = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
       const option = document.createElement('option');
       option.value = value;
       option.textContent = value + (i === 0 ? ' (Hoje)' : '');

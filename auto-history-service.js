@@ -63,13 +63,13 @@
     }
     
     // ===== HORÁRIO DE SÃO PAULO =====
-    // Firebase armazena timestamp em UTC (Date.now()). A data/hora usada no histórico
-    // é sempre calculada em America/Sao_Paulo para não virar o dia em UTC.
-    const SAO_PAULO_TZ = 'America/Sao_Paulo';
+    // Fonte única de data/hora local. O timestamp permanece epoch real (UTC),
+    // e somente os campos exibidos/filtrados são calculados em America/Sao_Paulo.
+    const WM_TIME_ZONE = 'America/Sao_Paulo';
 
     function getSaoPauloParts(date = new Date()) {
         const parts = new Intl.DateTimeFormat('pt-BR', {
-            timeZone: SAO_PAULO_TZ,
+            timeZone: WM_TIME_ZONE,
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit',
             hour12: false
@@ -78,23 +78,29 @@
             return acc;
         }, {});
 
-        if (parts.hour === '24') parts.hour = '00';
-        return parts;
+        return {
+            dia: parts.day,
+            mes: parts.month,
+            ano: parts.year,
+            hora: parts.hour === '24' ? '00' : parts.hour,
+            minuto: parts.minute,
+            segundo: parts.second
+        };
     }
 
     function getSaoPauloTime() {
         const now = new Date();
-        const p = getSaoPauloParts(now);
+        const sp = getSaoPauloParts(now);
 
         return {
-            data: { dia: p.day, mes: p.month, ano: p.year },
-            hora: { hora: p.hour, minuto: p.minute, segundo: p.second },
+            data: { dia: sp.dia, mes: sp.mes, ano: Number(sp.ano) },
+            hora: { hora: sp.hora, minuto: sp.minuto, segundo: sp.segundo },
             timestamp: now.getTime(),
-            dataBR: `${p.day}/${p.month}/${p.year}`,
-            horaCompleta: `${p.hour}:${p.minute}:${p.second}`,
-            horaMinuto: `${p.hour}:${p.minute}`,
-            horaInt: parseInt(p.hour, 10),
-            minutoInt: parseInt(p.minute, 10)
+            dataBR: `${sp.dia}/${sp.mes}/${sp.ano}`,
+            horaCompleta: `${sp.hora}:${sp.minuto}:${sp.segundo}`,
+            horaMinuto: `${sp.hora}:${sp.minuto}`,
+            horaInt: Number(sp.hora),
+            minutoInt: Number(sp.minuto)
         };
     }
 
