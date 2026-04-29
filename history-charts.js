@@ -1,6 +1,7 @@
 // ================= GRÁFICOS DE HISTÓRICO =================
 // WMoldes - versão estável sem recursão.
 // Corrige o canvas reutilizado e preserva o gráfico/tabela/insights.
+// Correção: data atual robusta contra timezone, ISO/BR e fallback com snapshot atual.
 (function () {
   'use strict';
 
@@ -85,6 +86,79 @@
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
   }
 
+
+  function normalizeSelectedDate(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return { br: '', iso: '' };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [y, m, d] = raw.split('-');
+      return { br: `${d}/${m}/${y}`, iso: raw };
+    }
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+      const [d, m, y] = raw.split('/');
+      return { br: raw, iso: `${y}-${m}-${d}` };
+    }
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return { br: formatBRDate(parsed), iso: formatISODate(parsed) };
+    return { br: raw, iso: getDateISOFromBR(raw) };
+  }
+
+  function getTodayBR() { return formatBRDate(new Date()); }
+  function getTodayISO() { return formatISODate(new Date()); }
+
+  function timestampMatchesDate(timestamp, targetBR, targetISO) {
+    const ts = Number(timestamp || 0);
+    if (!ts) return false;
+    const candidates = [new Date(ts), new Date(ts + (3 * 60 * 60 * 1000)), new Date(ts - (3 * 60 * 60 * 1000))];
+    return candidates.some(d => !Number.isNaN(d.getTime()) && (formatBRDate(d) === targetBR || formatISODate(d) === targetISO));
+  }
+
+  function isSelectedDateToday(dateValue) {
+    const normalized = normalizeSelectedDate(dateValue);
+    return normalized.br === getTodayBR() || normalized.iso === getTodayISO();
+  }
+
+  function extractLiveValues(machineData) {
+    const n = value => {
+      const num = parseInt(value, 10);
+      return Number.isFinite(num) ? num : 0;
+    };
+    return {
+      molde: n(machineData?.molde ?? machineData?.new_molde),
+      blank: n(machineData?.blank ?? machineData?.new_blank),
+      neck_ring: n(machineData?.neck_ring ?? machineData?.neckRing ?? machineData?.neckring ?? machineData?.new_neckring),
+      funil: n(machineData?.funil ?? machineData?.new_funil)
+    };
+  }
+
+  async function buildLiveSnapshot(machine, dateBR) {
+    if (!isSelectedDateToday(dateBR)) return null;
+    let machineData = null;
+    try {
+      if (window.allAdminMachines && window.allAdminMachines[machine]) machineData = window.allAdminMachines[machine];
+      else if (window.allMachinesData && window.allMachinesData[machine]) machineData = window.allMachinesData[machine];
+      else if (typeof maquinasRef !== 'undefined' && maquinasRef) {
+        const snap = await maquinasRef.child(machine).once('value');
+        machineData = snap.val();
+      }
+    } catch (err) { console.warn('Não foi possível criar snapshot atual do histórico', err); }
+    if (!machineData) return null;
+    const now = new Date();
+    return normalizeRecord('snapshot_atual', {
+      machineId: machine,
+      data: getTodayBR(),
+      dataISO: getTodayISO(),
+      hora: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+      horaCompleta: `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`,
+      horaNum: now.getHours(),
+      minutoNum: now.getMinutes(),
+      timestamp: now.getTime(),
+      ...extractLiveValues(machineData),
+      tipo: 'snapshot_atual',
+      source: 'current_machine_state'
+    });
+  }
+
   function getActivePeriod() {
     const active = document.querySelector('.period-btn.active, .period-option.active');
     return active ? (active.getAttribute('data-period') || '24h') : '24h';
@@ -112,7 +186,12 @@
       if (y && m && d) return `${d}/${m}/${y}`;
     }
 
-    if (record.timestamp) return formatBRDate(new Date(record.timestamp));
+    if (record.timestamp) {
+      const ts = Number(record.timestamp);
+      const candidates = [new Date(ts), new Date(ts + (3 * 60 * 60 * 1000)), new Date(ts - (3 * 60 * 60 * 1000))];
+      const valid = candidates.find(d => !Number.isNaN(d.getTime()));
+      return valid ? formatBRDate(valid) : '';
+    }
 
     return '';
   }
@@ -123,11 +202,6 @@
     const horaNum = Number.isFinite(record.horaNum) ? Number(record.horaNum) : date.getHours();
     const minutoNum = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : date.getMinutes();
     const data = recordDateBR(record);
-    const full = record.valoresCompletos || record.snapshot || {};
-    const n = value => {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : 0;
-    };
 
     return {
       id: key,
@@ -137,19 +211,11 @@
       hora: record.hora || `${pad2(horaNum)}:${pad2(minutoNum)}`,
       horaNum,
       minutoNum,
-      molde: n(record.molde !== undefined ? record.molde : (full.molde !== undefined ? full.molde : record.new_molde)),
-      blank: n(record.blank !== undefined ? record.blank : (full.blank !== undefined ? full.blank : record.new_blank)),
-      neck_ring: n(record.neck_ring !== undefined ? record.neck_ring : (full.neck_ring !== undefined ? full.neck_ring : record.new_neckring)),
-      funil: n(record.funil !== undefined ? record.funil : (full.funil !== undefined ? full.funil : record.new_funil)),
-      valoresCompletos: {
-        molde: n(full.molde !== undefined ? full.molde : record.molde),
-        blank: n(full.blank !== undefined ? full.blank : record.blank),
-        neck_ring: n(full.neck_ring !== undefined ? full.neck_ring : record.neck_ring),
-        funil: n(full.funil !== undefined ? full.funil : record.funil)
-      },
-      campo: record.campo || '',
-      camposAlterados: Array.isArray(record.camposAlterados) ? record.camposAlterados : [],
-      tipo: record.tipo || ''
+      molde: Number(record.molde !== undefined ? record.molde : (record.new_molde || 0)),
+      blank: Number(record.blank !== undefined ? record.blank : (record.new_blank || 0)),
+      neck_ring: Number(record.neck_ring !== undefined ? record.neck_ring : (record.new_neckring || 0)),
+      funil: Number(record.funil !== undefined ? record.funil : (record.new_funil || 0)),
+      tipo: record.tipo || 'hourly'
     };
   }
 
@@ -182,6 +248,9 @@
   async function getHistoryFromFirebase(machine, dateBR, period) {
     if (!machine) return [];
 
+    const selected = normalizeSelectedDate(dateBR);
+    dateBR = selected.br || dateBR;
+
     if (typeof historicoRef === 'undefined' || !historicoRef) {
       console.warn('historicoRef não definido');
       return [];
@@ -189,7 +258,7 @@
 
     const range = getPeriodRange(period);
     const acceptedBR = new Set([dateBR]);
-    const acceptedISO = new Set([getDateISOFromBR(dateBR)]);
+    const acceptedISO = new Set([selected.iso || getDateISOFromBR(dateBR)]);
 
     if (range.includeNextDate) {
       const next = addDays(dateBR, 1);
@@ -202,8 +271,11 @@
     const result = [];
 
     Object.keys(rows).forEach(key => {
-      const normalized = normalizeRecord(key, rows[key] || {});
-      if (acceptedBR.has(normalized.data) || acceptedISO.has(normalized.dataISO)) {
+      const raw = rows[key] || {};
+      const normalized = normalizeRecord(key, raw);
+      // Somente dados reais: ignora snapshots horários, snapshot atual e registros artificiais.
+      if (normalized.tipo !== 'real_time') return;
+      if (acceptedBR.has(normalized.data) || acceptedISO.has(normalized.dataISO) || timestampMatchesDate(normalized.timestamp, dateBR, selected.iso || getDateISOFromBR(dateBR))) {
         result.push(normalized);
       }
     });
@@ -215,19 +287,23 @@
     const range = getPeriodRange(period);
 
     if (period === '24h') {
-      const iso = getDateISOFromBR(currentDate);
-      return rows.filter(r => r.data === currentDate || r.dataISO === iso);
+      const selected = normalizeSelectedDate(currentDate);
+      const br = selected.br || currentDate;
+      const iso = selected.iso || getDateISOFromBR(br);
+      return rows.filter(r => r.data === br || r.dataISO === iso || timestampMatchesDate(r.timestamp, br, iso));
     }
 
     const start = toMinutes(range.start);
     const end = toMinutes(range.end);
-    const currentISO = getDateISOFromBR(currentDate);
-    const nextBR = addDays(currentDate, 1);
+    const selected = normalizeSelectedDate(currentDate);
+    const currentBR = selected.br || currentDate;
+    const currentISO = selected.iso || getDateISOFromBR(currentBR);
+    const nextBR = addDays(currentBR, 1);
     const nextISO = getDateISOFromBR(nextBR);
 
     return rows.filter(r => {
       const minutes = (r.horaNum || 0) * 60 + (r.minutoNum || 0);
-      const isCurrent = r.data === currentDate || r.dataISO === currentISO;
+      const isCurrent = r.data === currentBR || r.dataISO === currentISO || timestampMatchesDate(r.timestamp, currentBR, currentISO);
       const isNext = r.data === nextBR || r.dataISO === nextISO;
 
       if (start <= end) return isCurrent && minutes >= start && minutes <= end;
@@ -264,38 +340,66 @@
 
     if (!inner) return;
 
-    const width = Math.max(1100, count * (chartType === 'bar' ? 80 : 95));
+    const width = Math.max(1100, count * (chartType === 'bar' ? 80 : 95) + 140);
     inner.style.minWidth = `${width}px`;
     inner.style.width = `${width}px`;
 
     if (scroll) scroll.scrollLeft = 0;
   }
 
-  const endLabelsPlugin = {
-    id: 'wmEndLabels',
-    afterDatasetsDraw(chartInstance) {
-      if (chartType !== 'line') return;
-      const { ctx, chartArea } = chartInstance;
-      const items = [];
-      chartInstance.data.datasets.forEach((ds, dsIndex) => {
-        if (!chartInstance.isDatasetVisible(dsIndex)) return;
-        const meta = chartInstance.getDatasetMeta(dsIndex);
-        let i = ds.data.length - 1;
-        while (i >= 0 && (ds.data[i] === null || ds.data[i] === undefined)) i--;
-        if (i < 0 || !meta.data[i]) return;
-        items.push({ ds, x: meta.data[i].x, y: meta.data[i].y, text: ds.endLabel || ds.label });
-      });
-      ctx.save(); ctx.font = 'bold 12px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      const groups = new Map();
-      items.forEach(item => { const key = String(Math.round(item.x)) + '_' + String(Math.round(item.y)); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
-      groups.forEach(group => group.forEach((item, index) => {
-        let x = item.x + 26 + (group.length > 1 ? index * 30 : 0);
-        let y = Math.max(chartArea.top + 8, Math.min(chartArea.bottom - 8, item.y));
-        if (x > chartArea.right + 70) x = chartArea.right + 8 + (group.length > 1 ? index * 30 : 0);
-        ctx.fillStyle = item.ds.borderColor || '#111827'; ctx.fillText(item.text, x, y);
-      })); ctx.restore();
-    }
-  };
+
+  function makeEndLabelsPlugin() {
+    return {
+      id: 'wmEndLabels',
+      afterDatasetsDraw(chartInstance) {
+        if (chartType !== 'line') return;
+        const ctx = chartInstance.ctx;
+        const datasets = chartInstance.data.datasets || [];
+        if (!datasets.length) return;
+
+        const used = [];
+        ctx.save();
+        ctx.font = 'bold 12px Arial';
+        ctx.textBaseline = 'middle';
+
+        datasets.forEach((dataset, datasetIndex) => {
+          const meta = chartInstance.getDatasetMeta(datasetIndex);
+          if (!meta || meta.hidden || !meta.data || !meta.data.length) return;
+
+          let lastIndex = dataset.data.length - 1;
+          while (lastIndex >= 0 && (dataset.data[lastIndex] === null || dataset.data[lastIndex] === undefined)) lastIndex--;
+          if (lastIndex < 0) return;
+
+          const point = meta.data[lastIndex];
+          if (!point) return;
+
+          const name = String(dataset.label || '').toLowerCase();
+          const label = name.includes('molde') ? 'M' : name.includes('blank') ? 'BL' : name.includes('neck') ? 'NR' : name.includes('fun') ? 'F' : '';
+          if (!label) return;
+
+          let x = point.x + 28;
+          let y = point.y;
+
+          // Se dois labels caírem no mesmo valor/altura, coloca lado a lado.
+          used.forEach(pos => {
+            if (Math.abs(pos.y - y) < 14) {
+              x = Math.max(x, pos.x + 28);
+            }
+          });
+
+          // Mantém dentro do canvas, mas no espaço livre à direita do último ponto.
+          x = Math.min(x, chartInstance.width - 26);
+          y = Math.max(12, Math.min(chartInstance.height - 18, y));
+
+          ctx.fillStyle = dataset.borderColor || '#111827';
+          ctx.fillText(label, x, y);
+          used.push({ x, y });
+        });
+
+        ctx.restore();
+      }
+    };
+  }
 
   function buildChart(rows) {
     const canvas = $('historyChart');
@@ -303,43 +407,44 @@
 
     safeDestroyChart();
 
-    const sortedRows = sortRecords(rows);
-    const carry = { molde: null, blank: null, neckring: null, funil: null };
-    const points = sortedRows.map(item => {
-      const full = item.valoresCompletos || item.snapshot || null;
-      const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
-      const next = {
-        molde: hasOwn(item, 'molde') ? Number(item.molde) : (full && hasOwn(full, 'molde') ? Number(full.molde) : carry.molde),
-        blank: hasOwn(item, 'blank') ? Number(item.blank) : (full && hasOwn(full, 'blank') ? Number(full.blank) : carry.blank),
-        neckring: hasOwn(item, 'neck_ring') ? Number(item.neck_ring) : (full && hasOwn(full, 'neck_ring') ? Number(full.neck_ring) : carry.neckring),
-        funil: hasOwn(item, 'funil') ? Number(item.funil) : (full && hasOwn(full, 'funil') ? Number(full.funil) : carry.funil)
-      };
-      Object.keys(carry).forEach(key => { if (Number.isFinite(next[key])) carry[key] = next[key]; else next[key] = carry[key] ?? 0; });
-      return { label: item.data && item.data !== currentDate ? (item.hora + ' (' + item.data.slice(0, 5) + ')') : item.hora, ...next };
-    });
+    const points = sortRecords(rows).map(item => ({
+      label: item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora,
+      molde: item.molde || 0,
+      blank: item.blank || 0,
+      neckring: item.neck_ring || 0,
+      funil: item.funil || 0,
+      timestamp: item.timestamp || 0
+    }));
 
-    const extraRightSlots = points.length ? 1 : 0;
-    const axisLabels = points.map(p => p.label).concat(Array(extraRightSlots).fill(''));
-    setChartWidth(Math.max(points.length + extraRightSlots, 2));
+    setChartWidth(points.length);
+
     const datasets = [];
 
-    function addDataset(key, label, field, endLabel) {
+    function addDataset(key, label, field) {
       if (!datasetVisibility[key]) return;
-      datasets.push({ label, endLabel, data: points.map(p => p[field]).concat(Array(extraRightSlots).fill(null)), borderColor: CORES[key], backgroundColor: chartType === 'bar' ? (CORES[key] + '80') : 'transparent', borderWidth: 2, pointRadius: chartType === 'line' ? 3 : 0, tension: 0.12, spanGaps: false });
+
+      datasets.push({
+        label,
+        data: points.map(p => p[field]),
+        borderColor: CORES[key],
+        backgroundColor: chartType === 'bar' ? `${CORES[key]}80` : 'transparent',
+        borderWidth: 2,
+        pointRadius: chartType === 'line' ? 3 : 0,
+        tension: 0.12
+      });
     }
 
-    addDataset('molde', 'Moldes', 'molde', 'M');
-    addDataset('blank', 'Blanks', 'blank', 'BL');
-    addDataset('neckring', 'Neck Rings', 'neckring', 'NR');
-    addDataset('funil', 'Funís', 'funil', 'F');
+    addDataset('molde', 'Moldes', 'molde');
+    addDataset('blank', 'Blanks', 'blank');
+    addDataset('neckring', 'Neck Rings', 'neckring');
+    addDataset('funil', 'Funís', 'funil');
 
     chart = new Chart(canvas.getContext('2d'), {
       type: chartType,
       data: {
-        labels: axisLabels,
+        labels: points.map(p => p.label),
         datasets
       },
-      plugins: [endLabelsPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -370,7 +475,8 @@
           y: { beginAtZero: true, ticks: { stepSize: 1 } },
           x: { ticks: { autoSkip: false, maxRotation: 0 } }
         }
-      }
+      },
+      plugins: [makeEndLabelsPlugin()]
     });
 
     window.historyChart = chart;
@@ -390,7 +496,7 @@
     }
 
     tbody.innerHTML = sortRecords(rows).map(item => {
-      const icon = /^real_time/.test(String(item.tipo || '')) ? '⚡' : ''; 
+      const icon = item.tipo === 'real_time' ? '⚡' : '⏰';
       const hora = item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora;
 
       return `
@@ -474,7 +580,7 @@
     }
 
     currentMachine = machine;
-    currentDate = date;
+    currentDate = normalizeSelectedDate(date).br || date;
     isLoading = true;
 
     const container = document.querySelector('.chart-container');
@@ -669,30 +775,13 @@
     fillMachines();
     injectShiftButtons();
     bindEvents();
-    const selectedMachine = getSelectedMachineSafe();
-    const selectedDate = $('historyDate')?.value || currentDate;
-    if (selectedMachine && selectedDate) {
-      currentMachine = selectedMachine;
-      currentDate = normalizeSelectedDate(selectedDate).br || selectedDate;
-      setTimeout(() => loadHistoryChart(), 150);
-    } else {
-      buildChart([]);
-    }
-  }
+    buildChart([]);
 
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && getSelectedMachineSafe() && ($('historyDate')?.value || currentDate)) loadHistoryChart();
-  });
-
-
-  if (!window.__wmHistoryAutoReloadBound) {
-    window.__wmHistoryAutoReloadBound = true;
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && getSelectedMachineSafe() && ($('historyDate')?.value || currentDate)) loadHistoryChart();
-    });
-    window.addEventListener('focus', () => {
-      if (getSelectedMachineSafe() && ($('historyDate')?.value || currentDate)) loadHistoryChart();
-    });
+    setTimeout(() => {
+      const machine = getSelectedMachineSafe();
+      const date = $('historyDate')?.value || currentDate;
+      if (machine && date) loadHistoryChart();
+    }, 300);
   }
 
   window.initHistorySection = initHistorySection;
