@@ -136,7 +136,6 @@
       blank: Number(record.blank !== undefined ? record.blank : (record.new_blank || 0)),
       neck_ring: Number(record.neck_ring !== undefined ? record.neck_ring : (record.new_neckring || 0)),
       funil: Number(record.funil !== undefined ? record.funil : (record.new_funil || 0)),
-      changedFields: Array.isArray(record.changedFields) ? record.changedFields : null,
       tipo: record.tipo || 'hourly'
     };
   }
@@ -283,29 +282,14 @@
 
     sortedRows.forEach(item => {
       const label = normalizePointLabel(item);
-      const changed = Array.isArray(item.changedFields) ? item.changedFields : null;
-      const isRealtime = item.tipo === 'real_time';
-
-      // Para registros em tempo real, desenha ponto somente na série que mudou.
-      // Ex.: se só Blank mudou, Molde fica null nesse horário e a linha atravessa
-      // sem criar ponto falso. Snapshots horários continuam preenchendo tudo.
-      const point = {
+      pointMap.set(label, {
         label,
         isBoundary: false,
-        molde: (!isRealtime || !changed || changed.includes('molde')) ? (item.molde || 0) : null,
-        blank: (!isRealtime || !changed || changed.includes('blank')) ? (item.blank || 0) : null,
-        neckring: (!isRealtime || !changed || changed.includes('neck_ring')) ? (item.neck_ring || 0) : null,
-        funil: (!isRealtime || !changed || changed.includes('funil')) ? (item.funil || 0) : null
-      };
-
-      const existing = pointMap.get(label);
-      if (existing) {
-        ['molde', 'blank', 'neckring', 'funil'].forEach(field => {
-          if (point[field] !== null && point[field] !== undefined) existing[field] = point[field];
-        });
-      } else {
-        pointMap.set(label, point);
-      }
+        molde: item.molde || 0,
+        blank: item.blank || 0,
+        neckring: item.neck_ring || 0,
+        funil: item.funil || 0
+      });
     });
 
     const points = [];
@@ -341,7 +325,7 @@
         pointRadius: ctx => points[ctx.dataIndex]?.isBoundary ? 0 : (chartType === 'line' ? 3 : 0),
         pointHoverRadius: ctx => points[ctx.dataIndex]?.isBoundary ? 0 : 5,
         tension: 0.12,
-        spanGaps: true
+        spanGaps: false
       });
     }
 

@@ -17,18 +17,18 @@
     // Controle do último registro em tempo real salvo por máquina
     let lastRealTimeRecord = {};
     
+    // Alterações pendentes por máquina: confirma após 10s antes de gravar no histórico
+    let pendingRealtimeChanges = {};
+    
     // Evita inicialização duplicada
     let isRunning = false;
     
     // Intervalo mínimo entre registros em tempo real
     // Como você quer registrar toda mudança real, mantemos 0.
     const MIN_REAL_TIME_INTERVAL = 0;
-
-    // Anti-flood por máquina: espera estabilizar antes de gravar no histórico.
-    // Se a mesma máquina receber vários lançamentos em sequência, só o último estado
-    // confirmado após 10s entra no gráfico.
-    const STABLE_CHANGE_DELAY = 10 * 1000; // 10 segundos
-    const pendingStableChanges = {};
+    
+    // Aguarda estabilidade antes de enviar para o gráfico
+    const CHANGE_CONFIRMATION_DELAY = 10 * 1000;
     
     // Verificação de snapshot horário
     const HOURLY_CHECK_INTERVAL = 60 * 1000; // 1 minuto
@@ -124,62 +124,13 @@
         };
     }
     
-    function getChangedFields(oldValues, newValues) {
-        const fields = [];
-        if ((newValues.molde ?? 0) !== (oldValues?.molde ?? 0)) fields.push('molde');
-        if ((newValues.blank ?? 0) !== (oldValues?.blank ?? 0)) fields.push('blank');
-        if ((newValues.neck_ring ?? 0) !== (oldValues?.neck_ring ?? 0)) fields.push('neck_ring');
-        if ((newValues.funil ?? 0) !== (oldValues?.funil ?? 0)) fields.push('funil');
-        return fields;
-    }
-
     function valuesChanged(oldValues, newValues) {
-        return getChangedFields(oldValues, newValues).length > 0;
-    }
-
-    function scheduleStableChange(machineId, valoresDetectados, source = 'unknown') {
-        const baseValues = pendingStableChanges[machineId]?.baseValues || { ...(lastValues[machineId] || {}) };
-
-        if (pendingStableChanges[machineId]?.timer) {
-            clearTimeout(pendingStableChanges[machineId].timer);
-        }
-
-        pendingStableChanges[machineId] = {
-            baseValues,
-            latestValues: { ...valoresDetectados },
-            source,
-            timer: setTimeout(async () => {
-                const pending = pendingStableChanges[machineId];
-                if (!pending) return;
-
-                try {
-                    let valoresConfirmados = pending.latestValues;
-
-                    // Confirma no Firebase depois da janela de estabilização.
-                    // Assim, se o operador/sincronização corrigir o valor dentro dos 10s,
-                    // o gráfico recebe somente o valor final.
-                    if (typeof maquinasRef !== 'undefined' && maquinasRef) {
-                        const snap = await maquinasRef.child(machineId).once('value');
-                        valoresConfirmados = extractMachineValues(snap.val() || {});
-                    }
-
-                    const changedFields = getChangedFields(pending.baseValues, valoresConfirmados);
-                    delete pendingStableChanges[machineId];
-
-                    if (!changedFields.length) {
-                        console.log(`⏳ Alteração descartada após estabilização: ${machineId}`);
-                        return;
-                    }
-
-                    await registerRealtimeChange(machineId, valoresConfirmados, `${pending.source}_stable_10s`, changedFields, pending.baseValues);
-                } catch (error) {
-                    delete pendingStableChanges[machineId];
-                    console.error(`❌ Erro ao confirmar alteração estável em ${machineId}:`, error);
-                }
-            }, STABLE_CHANGE_DELAY)
-        };
-
-        console.log(`⏳ Aguardando 10s para confirmar alteração em ${machineId}`);
+        return (
+            (newValues.molde ?? 0) !== (oldValues?.molde ?? 0) ||
+            (newValues.blank ?? 0) !== (oldValues?.blank ?? 0) ||
+            (newValues.neck_ring ?? 0) !== (oldValues?.neck_ring ?? 0) ||
+            (newValues.funil ?? 0) !== (oldValues?.funil ?? 0)
+        );
     }
     
     // ===== CARREGAR ESTADO INICIAL =====
@@ -214,35 +165,10 @@
         }
     }
         // ===== REGISTRAR ALTERAÇÃO REAL =====
-    async function registerRealtimeChange(machineId, valoresAtuais, source = 'unknown', changedFields = null, baseValues = null) {
+    async function saveRealtimeChangeNow(machineId, valoresAtuais, ultimos, source = 'unknown') {
         try {
-            const ultimos = baseValues || lastValues[machineId] || {};
             const agora = Date.now();
-            
-            changedFields = Array.isArray(changedFields) ? changedFields : getChangedFields(ultimos, valoresAtuais);
-
-            // Se não mudou nada, não registra
-            if (!changedFields.length) {
-                return false;
-            }
-            
-            const ultimoRealTime = lastRealTimeRecord[machineId]?.timestamp || 0;
-            const tempoDesdeUltimo = agora - ultimoRealTime;
-            
-            if (tempoDesdeUltimo < MIN_REAL_TIME_INTERVAL) {
-                lastValues[machineId] = {
-                    ...valoresAtuais,
-                    timestamp: agora
-                };
-                return false;
-            }
-            
             const sp = getSaoPauloTime();
-            
-            console.log(`⚡ Alteração real detectada (${source}) em ${machineId} às ${sp.horaCompleta}`);
-            console.log(`   Antes: M:${ultimos.molde ?? 0} B:${ultimos.blank ?? 0} N:${ultimos.neck_ring ?? 0} F:${ultimos.funil ?? 0}`);
-            console.log(`   Agora: M:${valoresAtuais.molde} B:${valoresAtuais.blank} N:${valoresAtuais.neck_ring} F:${valoresAtuais.funil}`);
-            
             const registro = {
                 machineId: machineId,
                 data: sp.dataBR,
@@ -252,51 +178,80 @@
                 horaNum: sp.horaInt,
                 minutoNum: sp.minutoInt,
                 timestamp: sp.timestamp,
-                
                 molde: valoresAtuais.molde,
                 blank: valoresAtuais.blank,
                 neck_ring: valoresAtuais.neck_ring,
                 funil: valoresAtuais.funil,
-                
                 mudancas: {
                     molde: valoresAtuais.molde - (ultimos.molde ?? 0),
                     blank: valoresAtuais.blank - (ultimos.blank ?? 0),
                     neck_ring: valoresAtuais.neck_ring - (ultimos.neck_ring ?? 0),
                     funil: valoresAtuais.funil - (ultimos.funil ?? 0)
                 },
-
-                // Campos realmente alterados. O gráfico usa isso para não criar ponto
-                // em Molde quando só Blank mudou, e vice-versa.
-                changedFields: changedFields,
-                
                 tipo: 'real_time',
                 source: source,
+                confirmed_after_ms: CHANGE_CONFIRMATION_DELAY,
                 created_at: new Date().toISOString()
             };
-            
-            // Chave única por instante
-            const chave = `rt_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(sp.timestamp).slice(-3)}`;
-            
+            const chave = `rt_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(sp.timestamp).slice(-3) }`;
             await historicoRef.child(machineId).child(chave).set(registro);
-            
-            lastValues[machineId] = {
-                ...valoresAtuais,
-                timestamp: agora
-            };
-            
-            lastRealTimeRecord[machineId] = {
-                timestamp: agora,
-                valores: { ...valoresAtuais }
-            };
-            
-            console.log(`✅ Histórico em tempo real salvo: ${machineId}`);
+            lastValues[machineId] = { ...valoresAtuais, timestamp: agora };
+            lastRealTimeRecord[machineId] = { timestamp: agora, valores: { ...valoresAtuais } };
+            console.log(`✅ Histórico em tempo real salvo após confirmação: ${machineId}`);
             return true;
         } catch (error) {
             console.error(`❌ Erro ao registrar alteração em ${machineId}:`, error);
             return false;
         }
     }
-    
+
+    async function confirmAndSavePendingChange(machineId) {
+        const pending = pendingRealtimeChanges[machineId];
+        if (!pending) return false;
+        try {
+            const snapshot = await maquinasRef.child(machineId).once("value");
+            const machineData = snapshot.val() || {};
+            const valoresConfirmados = extractMachineValues(machineData);
+            const baseValues = pending.baseValues || lastValues[machineId] || {};
+            delete pendingRealtimeChanges[machineId];
+            if (!valuesChanged(baseValues, valoresConfirmados)) {
+                console.log(`⏳ Alteração descartada em ${machineId}: voltou ao valor anterior dentro de ${CHANGE_CONFIRMATION_DELAY / 1000}s.`);
+                return false;
+            }
+            return await saveRealtimeChangeNow(machineId, valoresConfirmados, baseValues, pending.source || 'confirmed_change');
+        } catch (error) {
+            delete pendingRealtimeChanges[machineId];
+            console.error(`❌ Erro ao confirmar alteração pendente em ${machineId}:`, error);
+            return false;
+        }
+    }
+
+    async function registerRealtimeChange(machineId, valoresAtuais, source = 'unknown') {
+        try {
+            const ultimos = lastValues[machineId] || {};
+            if (!valuesChanged(ultimos, valoresAtuais)) {
+                if (pendingRealtimeChanges[machineId]) {
+                    clearTimeout(pendingRealtimeChanges[machineId].timer);
+                    delete pendingRealtimeChanges[machineId];
+                }
+                return false;
+            }
+            if (pendingRealtimeChanges[machineId]?.timer) clearTimeout(pendingRealtimeChanges[machineId].timer);
+            pendingRealtimeChanges[machineId] = {
+                baseValues: { ...ultimos },
+                observedValues: { ...valoresAtuais },
+                source,
+                createdAt: Date.now(),
+                timer: setTimeout(() => confirmAndSavePendingChange(machineId), CHANGE_CONFIRMATION_DELAY)
+            };
+            console.log(`⏳ Alteração aguardando confirmação de ${CHANGE_CONFIRMATION_DELAY / 1000}s: ${machineId} (${source})`);
+            return true;
+        } catch (error) {
+            console.error(`❌ Erro ao agendar alteração em ${machineId}:`, error);
+            return false;
+        }
+    }
+
     // ===== LISTENER REALTIME DO FIREBASE =====
     function monitorRealtimeChanges() {
         console.log("👀 Monitorando child_changed em maquinas...");
@@ -306,7 +261,7 @@
             const machineData = snapshot.val() || {};
             const valoresAtuais = extractMachineValues(machineData);
             
-            scheduleStableChange(machineId, valoresAtuais, 'firebase_child_changed');
+            await registerRealtimeChange(machineId, valoresAtuais, 'firebase_child_changed');
         });
         
         // Se uma máquina aparecer depois
@@ -350,7 +305,7 @@
                 
                 if (valuesChanged(ultimos, valoresAtuais)) {
                     console.log(`🛡️ Polling detectou mudança que ainda não estava no histórico: ${machineId}`);
-                    scheduleStableChange(machineId, valoresAtuais, 'safety_polling');
+                    await registerRealtimeChange(machineId, valoresAtuais, 'safety_polling');
                 }
             }
         } catch (error) {
