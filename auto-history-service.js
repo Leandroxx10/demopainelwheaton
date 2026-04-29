@@ -1,15 +1,16 @@
 // ================= SERVIÇO DE HISTÓRICO =================
-// Debounce por máquina + por campo (10s) e registros parciais seguros.
+// Registra SOMENTE alterações reais, com debounce independente por máquina e por campo.
+// Não cria snapshots horários automáticos para evitar dados falsos no gráfico.
 (function() {
   "use strict";
+
   const DEBOUNCE_MS = 10000;
-  const FIELDS = ["molde", "blank", "neck_ring", "funil"];
-  const HOURLY_CHECK_INTERVAL = 60000;
   const SAFETY_POLL_INTERVAL = 10000;
-  let lastConfirmedValues = {};
+  const FIELDS = ["molde", "blank", "neck_ring", "funil"];
+
+  let confirmedValues = {};
   let pendingTimers = {};
-  let pendingTargets = {};
-  let lastHourlyRecord = {};
+  let pendingExpected = {};
   let isRunning = false;
 
   const checkFirebase = setInterval(() => {
@@ -22,108 +23,225 @@
   function startService() {
     if (isRunning) return;
     isRunning = true;
-    console.log("✅ Histórico: debounce por campo ativo");
+    console.log("✅ Histórico real ativo: debounce por máquina/campo, sem snapshot falso");
     loadInitialValues().then(() => {
       monitorRealtimeChanges();
       setInterval(runSafetyPolling, SAFETY_POLL_INTERVAL);
-      setInterval(checkAndRecordHourly, HOURLY_CHECK_INTERVAL);
-      setTimeout(checkAndRecordHourly, 5000);
     });
   }
 
   function getSaoPauloTime() {
     const now = new Date();
-    const sp = new Date(now.getTime() - (3 * 60 * 60 * 1000));
-    const dia = String(sp.getUTCDate()).padStart(2, "0");
-    const mes = String(sp.getUTCMonth() + 1).padStart(2, "0");
-    const ano = sp.getUTCFullYear();
-    const hh = String(sp.getUTCHours()).padStart(2, "0");
-    const mm = String(sp.getUTCMinutes()).padStart(2, "0");
-    const ss = String(sp.getUTCSeconds()).padStart(2, "0");
-    return { data:{dia,mes,ano}, dataBR:`${dia}/${mes}/${ano}`, dataISO:`${ano}-${mes}-${dia}`, hora:{hora:hh,minuto:mm,segundo:ss}, horaMinuto:`${hh}:${mm}`, horaCompleta:`${hh}:${mm}:${ss}`, horaInt:sp.getUTCHours(), minutoInt:sp.getUTCMinutes(), timestamp:sp.getTime() };
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).formatToParts(now).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+    const ano = parts.year, mes = parts.month, dia = parts.day;
+    const hh = parts.hour === '24' ? '00' : parts.hour;
+    const mm = parts.minute, ss = parts.second;
+    return {
+      data: { dia, mes, ano },
+      dataBR: `${dia}/${mes}/${ano}`,
+      dataISO: `${ano}-${mes}-${dia}`,
+      hora: { hora: hh, minuto: mm, segundo: ss },
+      horaMinuto: `${hh}:${mm}`,
+      horaCompleta: `${hh}:${mm}:${ss}`,
+      horaInt: parseInt(hh, 10),
+      minutoInt: parseInt(mm, 10),
+      // Timestamp real absoluto; data/hora exibidas ficam em São Paulo pelos campos acima.
+      timestamp: Date.now()
+    };
   }
 
-  function parseNum(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; }
-  function extractMachineValues(d) { d = d || {}; return { molde:parseNum(d.molde ?? d.new_molde), blank:parseNum(d.blank ?? d.new_blank), neck_ring:parseNum(d.neck_ring ?? d.neckRing ?? d.neckring ?? d.new_neckring), funil:parseNum(d.funil ?? d.new_funil) }; }
-  function valuesChanged(a,b) { if (!a || !b) return true; return FIELDS.some(f => (a[f] ?? 0) !== (b[f] ?? 0)); }
-  async function getCurrentValues(machineId) { const snap = await maquinasRef.child(machineId).once("value"); return extractMachineValues(snap.val() || {}); }
+  function parseNum(v) {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function extractMachineValues(d) {
+    d = d || {};
+    return {
+      molde: parseNum(d.molde ?? d.new_molde),
+      blank: parseNum(d.blank ?? d.new_blank),
+      neck_ring: parseNum(d.neck_ring ?? d.neckRing ?? d.neckring ?? d.new_neckring),
+      funil: parseNum(d.funil ?? d.new_funil)
+    };
+  }
+
+  async function getCurrentValues(machineId) {
+    const snap = await maquinasRef.child(machineId).once("value");
+    return extractMachineValues(snap.val() || {});
+  }
 
   async function loadInitialValues() {
-    const snap = await maquinasRef.once("value");
-    const machines = snap.val() || {};
-    Object.keys(machines).forEach(id => {
-      const v = extractMachineValues(machines[id]);
-      lastConfirmedValues[id] = { ...v };
-      lastHourlyRecord[id] = { hora:-1, data:"", valores:{...v} };
-    });
+    try {
+      const snap = await maquinasRef.once("value");
+      const machines = snap.val() || {};
+      Object.keys(machines).forEach(machineId => {
+        confirmedValues[machineId] = extractMachineValues(machines[machineId]);
+      });
+      console.log("✅ Histórico: estado base carregado", Object.keys(machines).length, "máquinas");
+    } catch (e) {
+      console.error("❌ Erro ao carregar estado base do histórico:", e);
+    }
   }
 
-  function scheduleField(machineId, field, value, source) {
-    pendingTimers[machineId] = pendingTimers[machineId] || {};
-    pendingTargets[machineId] = pendingTargets[machineId] || {};
-    pendingTargets[machineId][field] = value;
+  function ensureMachine(machineId, current) {
+    if (!confirmedValues[machineId]) confirmedValues[machineId] = { ...current };
+    if (!pendingTimers[machineId]) pendingTimers[machineId] = {};
+    if (!pendingExpected[machineId]) pendingExpected[machineId] = {};
+  }
+
+  function scheduleField(machineId, field, expectedValue, source) {
+    ensureMachine(machineId, confirmedValues[machineId] || {});
+    pendingExpected[machineId][field] = expectedValue;
     if (pendingTimers[machineId][field]) clearTimeout(pendingTimers[machineId][field]);
-    pendingTimers[machineId][field] = setTimeout(() => confirmAndSaveField(machineId, field, value, source), DEBOUNCE_MS);
-    console.log(`⏳ ${machineId}.${field}: aguardando 10s para confirmar ${value}`);
+    pendingTimers[machineId][field] = setTimeout(() => {
+      confirmAndSaveField(machineId, field, expectedValue, source);
+    }, DEBOUNCE_MS);
+    console.log(`⏳ ${machineId}.${field}: aguardando 10s para confirmar valor ${expectedValue}`);
   }
 
   async function handleMachineChange(machineId, current, source) {
-    const base = lastConfirmedValues[machineId] || current;
+    ensureMachine(machineId, current);
+    const base = confirmedValues[machineId];
+
     FIELDS.forEach(field => {
-      const value = current[field] ?? 0;
+      const nowValue = current[field] ?? 0;
       const confirmed = base[field] ?? 0;
-      const pending = pendingTargets[machineId]?.[field];
-      if (value !== confirmed || (pending !== undefined && value !== pending)) scheduleField(machineId, field, value, source);
+      const pending = pendingExpected[machineId]?.[field];
+
+      // Campo voltou ao valor confirmado: cancela pendência desse campo.
+      if (nowValue === confirmed) {
+        if (pendingTimers[machineId]?.[field]) clearTimeout(pendingTimers[machineId][field]);
+        if (pendingExpected[machineId]) delete pendingExpected[machineId][field];
+        return;
+      }
+
+      // Campo mudou ou mudou novamente enquanto estava pendente.
+      if (pending === undefined || pending !== nowValue) {
+        scheduleField(machineId, field, nowValue, source);
+      }
     });
   }
 
-  async function confirmAndSaveField(machineId, field, expected, source) {
+  async function confirmAndSaveField(machineId, field, expectedValue, source) {
     try {
       const current = await getCurrentValues(machineId);
+      ensureMachine(machineId, current);
+
       const actual = current[field] ?? 0;
-      const confirmed = lastConfirmedValues[machineId] || { ...current };
-      const previous = confirmed[field] ?? 0;
-      if (actual !== expected) { scheduleField(machineId, field, actual, source + "_rescheduled"); return false; }
-      if (actual === previous) { if (pendingTargets[machineId]) delete pendingTargets[machineId][field]; return false; }
+      const previousSnapshot = confirmedValues[machineId] || { ...current };
+      const previousValue = previousSnapshot[field] ?? 0;
+
+      // Se mudou de novo durante os 10s, reinicia a contagem para o novo valor real.
+      if (actual !== expectedValue) {
+        scheduleField(machineId, field, actual, `${source}_rescheduled`);
+        return false;
+      }
+
+      // Se voltou ao valor anterior, não registra nada.
+      if (actual === previousValue) {
+        if (pendingExpected[machineId]) delete pendingExpected[machineId][field];
+        return false;
+      }
+
       const sp = getSaoPauloTime();
-      const registro = { machineId, data:sp.dataBR, dataISO:sp.dataISO, hora:sp.horaMinuto, horaCompleta:sp.horaCompleta, horaNum:sp.horaInt, minutoNum:sp.minutoInt, timestamp:sp.timestamp, campo:field, camposAlterados:[field], valoresCompletos:{...current}, valorAnterior:previous, valorNovo:actual, mudancas:{[field]: actual - previous}, tipo:"real_time_field", source, created_at:new Date().toISOString() };
-      registro[field] = actual;
-      const chave = `rtf_${field}_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(Date.now()).slice(-5)}`;
+      const fullValues = { ...current };
+      const updatedSnapshot = { ...previousSnapshot, [field]: actual };
+
+      const registro = {
+        machineId,
+        data: sp.dataBR,
+        dataISO: sp.dataISO,
+        hora: sp.horaMinuto,
+        horaCompleta: sp.horaCompleta,
+        horaNum: sp.horaInt,
+        minutoNum: sp.minutoInt,
+        timestamp: sp.timestamp,
+
+        // Valores reais completos no momento confirmado.
+        molde: fullValues.molde,
+        blank: fullValues.blank,
+        neck_ring: fullValues.neck_ring,
+        funil: fullValues.funil,
+        valoresCompletos: fullValues,
+
+        campo,
+        camposAlterados: [field],
+        valorAnterior: previousValue,
+        valorNovo: actual,
+        mudancas: { [field]: actual - previousValue },
+        tipo: "real_time_field",
+        source,
+        created_at: new Date().toISOString()
+      };
+
+      const chave = `rtf_${field}_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(Date.now()).slice(-6)}`;
       await historicoRef.child(machineId).child(chave).set(registro);
-      lastConfirmedValues[machineId] = { ...confirmed, [field]: actual };
-      if (pendingTargets[machineId]) delete pendingTargets[machineId][field];
-      console.log(`✅ Histórico salvo: ${machineId}.${field} ${previous} -> ${actual}`);
+
+      confirmedValues[machineId] = updatedSnapshot;
+      if (pendingExpected[machineId]) delete pendingExpected[machineId][field];
+      console.log(`✅ Histórico real salvo: ${machineId}.${field} ${previousValue} -> ${actual}`);
       return true;
-    } catch (e) { console.error(`❌ Erro ao salvar ${machineId}.${field}:`, e); return false; }
+    } catch (e) {
+      console.error(`❌ Erro ao salvar histórico real ${machineId}.${field}:`, e);
+      return false;
+    }
   }
 
   function monitorRealtimeChanges() {
-    maquinasRef.on("child_changed", snap => handleMachineChange(snap.key, extractMachineValues(snap.val() || {}), "firebase_child_changed"));
-    maquinasRef.on("child_added", snap => { const id=snap.key, v=extractMachineValues(snap.val() || {}); if (!lastConfirmedValues[id]) lastConfirmedValues[id]={...v}; if (!lastHourlyRecord[id]) lastHourlyRecord[id]={hora:-1,data:"",valores:{...v}}; });
+    maquinasRef.on("child_changed", snap => {
+      handleMachineChange(snap.key, extractMachineValues(snap.val() || {}), "firebase_child_changed");
+    });
+
+    maquinasRef.on("child_added", snap => {
+      const machineId = snap.key;
+      const current = extractMachineValues(snap.val() || {});
+      ensureMachine(machineId, current);
+    });
   }
 
   async function runSafetyPolling() {
-    try { const snap = await maquinasRef.once("value"); const machines = snap.val() || {}; for (const id of Object.keys(machines)) { const v = extractMachineValues(machines[id]); if (valuesChanged(lastConfirmedValues[id], v)) await handleMachineChange(id, v, "safety_polling"); } } catch(e) { console.error("❌ Erro no polling:", e); }
-  }
-
-  async function checkAndRecordHourly() {
     try {
-      const sp = getSaoPauloTime(); if (sp.minutoInt > 5) return;
-      const snap = await maquinasRef.once("value"); const machines = snap.val() || {};
-      for (const id in machines) {
-        const v = extractMachineValues(machines[id]); const last = lastHourlyRecord[id];
-        if (last && last.hora === sp.horaInt && last.data === sp.dataBR) continue;
-        const horaFormatada = `${String(sp.horaInt).padStart(2,"0")}:00`;
-        const registro = { machineId:id, data:sp.dataBR, dataISO:sp.dataISO, hora:horaFormatada, horaCompleta:`${horaFormatada}:00`, horaNum:sp.horaInt, minutoNum:0, timestamp:sp.timestamp, ...v, tipo:"hourly", source:"hourly_snapshot", created_at:new Date().toISOString() };
-        const chave = `${sp.data.ano}${sp.data.mes}${sp.data.dia}_${String(sp.horaInt).padStart(2,"0")}00`;
-        await historicoRef.child(id).child(chave).set(registro);
-        lastHourlyRecord[id] = { hora:sp.horaInt, data:sp.dataBR, valores:{...v} };
-        lastConfirmedValues[id] = { ...v };
+      const snap = await maquinasRef.once("value");
+      const machines = snap.val() || {};
+      for (const machineId of Object.keys(machines)) {
+        const current = extractMachineValues(machines[machineId]);
+        await handleMachineChange(machineId, current, "safety_polling");
       }
-    } catch(e) { console.error("❌ Erro no snapshot horário:", e); }
+    } catch (e) {
+      console.error("❌ Erro no polling de histórico:", e);
+    }
   }
 
-  window.getHistoryByDate = async function(machineId, dataBR) { return new Promise((resolve, reject) => { historicoRef.child(machineId).orderByChild("data").equalTo(dataBR).once("value", s => { const d=s.val() || {}; resolve(Object.values(d).filter(x => x.data === dataBR).sort((a,b)=>(a.timestamp||0)-(b.timestamp||0))); }, reject); }); };
-  window.getMachineHistoryByDate = async function(machineId, dateISO) { try { if (!machineId || !dateISO) return []; const [ano,mes,dia] = dateISO.split("-"); const dataBR = `${dia}/${mes}/${ano}`; const lista = await window.getHistoryByDate(machineId, dataBR); return lista.map(x => ({...x, hora:x.horaNum ?? 0, minuto:x.minutoNum ?? 0})); } catch(e) { console.error("❌ Erro em getMachineHistoryByDate:", e); return []; } };
-  window.forceManualRecord = async function() { return await checkAndRecordHourly(); };
+  // Mantido apenas para compatibilidade com botões antigos. Não cria snapshot falso.
+  window.forceManualRecord = async function() {
+    console.warn("forceManualRecord desativado: o histórico agora grava somente alterações reais confirmadas.");
+    return false;
+  };
+
+  window.getHistoryByDate = async function(machineId, dataBR) {
+    return new Promise((resolve, reject) => {
+      historicoRef.child(machineId).orderByChild("data").equalTo(dataBR).once("value", snap => {
+        const rows = snap.val() || {};
+        resolve(Object.values(rows)
+          .filter(item => item.data === dataBR && /^real_time/.test(String(item.tipo || '')))
+          .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)));
+      }, reject);
+    });
+  };
+
+  window.getMachineHistoryByDate = async function(machineId, dateISO) {
+    try {
+      if (!machineId || !dateISO) return [];
+      const [ano, mes, dia] = dateISO.split("-");
+      const dataBR = `${dia}/${mes}/${ano}`;
+      const lista = await window.getHistoryByDate(machineId, dataBR);
+      return lista.map(item => ({ ...item, hora: item.horaNum ?? 0, minuto: item.minutoNum ?? 0 }));
+    } catch (e) {
+      console.error("❌ Erro em getMachineHistoryByDate:", e);
+      return [];
+    }
+  };
 })();
