@@ -23,6 +23,12 @@
     // Intervalo mínimo entre registros em tempo real
     // Como você quer registrar toda mudança real, mantemos 0.
     const MIN_REAL_TIME_INTERVAL = 0;
+
+    // Anti-flood por máquina: espera estabilizar antes de gravar no histórico.
+    // Se a mesma máquina receber vários lançamentos em sequência, só o último estado
+    // confirmado após 10s entra no gráfico.
+    const STABLE_CHANGE_DELAY = 10 * 1000; // 10 segundos
+    const pendingStableChanges = {};
     
     // Verificação de snapshot horário
     const HOURLY_CHECK_INTERVAL = 60 * 1000; // 1 minuto
@@ -65,32 +71,27 @@
     // ===== HORÁRIO DE SÃO PAULO =====
     function getSaoPauloTime() {
         const now = new Date();
-        const parts = new Intl.DateTimeFormat('pt-BR', {
-            timeZone: 'America/Sao_Paulo',
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false
-        }).formatToParts(now).reduce((acc, part) => {
-            if (part.type !== 'literal') acc[part.type] = part.value;
-            return acc;
-        }, {});
-
-        const dia = parts.day;
-        const mes = parts.month;
-        const ano = Number(parts.year);
-        const hora = parts.hour === '24' ? '00' : parts.hour;
-        const minuto = parts.minute;
-        const segundo = parts.second;
-
+        
+        // São Paulo UTC-3
+        const sp = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+        
         return {
-            data: { dia, mes, ano },
-            hora: { hora, minuto, segundo },
-            timestamp: now.getTime(),
-            dataBR: `${dia}/${mes}/${ano}`,
-            horaCompleta: `${hora}:${minuto}:${segundo}`,
-            horaMinuto: `${hora}:${minuto}`,
-            horaInt: Number(hora),
-            minutoInt: Number(minuto)
+            data: {
+                dia: String(sp.getUTCDate()).padStart(2, '0'),
+                mes: String(sp.getUTCMonth() + 1).padStart(2, '0'),
+                ano: sp.getUTCFullYear()
+            },
+            hora: {
+                hora: String(sp.getUTCHours()).padStart(2, '0'),
+                minuto: String(sp.getUTCMinutes()).padStart(2, '0'),
+                segundo: String(sp.getUTCSeconds()).padStart(2, '0')
+            },
+            timestamp: sp.getTime(),
+            dataBR: `${String(sp.getUTCDate()).padStart(2, '0')}/${String(sp.getUTCMonth() + 1).padStart(2, '0')}/${sp.getUTCFullYear()}`,
+            horaCompleta: `${String(sp.getUTCHours()).padStart(2, '0')}:${String(sp.getUTCMinutes()).padStart(2, '0')}:${String(sp.getUTCSeconds()).padStart(2, '0')}`,
+            horaMinuto: `${String(sp.getUTCHours()).padStart(2, '0')}:${String(sp.getUTCMinutes()).padStart(2, '0')}`,
+            horaInt: sp.getUTCHours(),
+            minutoInt: sp.getUTCMinutes()
         };
     }
     
@@ -123,13 +124,62 @@
         };
     }
     
+    function getChangedFields(oldValues, newValues) {
+        const fields = [];
+        if ((newValues.molde ?? 0) !== (oldValues?.molde ?? 0)) fields.push('molde');
+        if ((newValues.blank ?? 0) !== (oldValues?.blank ?? 0)) fields.push('blank');
+        if ((newValues.neck_ring ?? 0) !== (oldValues?.neck_ring ?? 0)) fields.push('neck_ring');
+        if ((newValues.funil ?? 0) !== (oldValues?.funil ?? 0)) fields.push('funil');
+        return fields;
+    }
+
     function valuesChanged(oldValues, newValues) {
-        return (
-            (newValues.molde ?? 0) !== (oldValues?.molde ?? 0) ||
-            (newValues.blank ?? 0) !== (oldValues?.blank ?? 0) ||
-            (newValues.neck_ring ?? 0) !== (oldValues?.neck_ring ?? 0) ||
-            (newValues.funil ?? 0) !== (oldValues?.funil ?? 0)
-        );
+        return getChangedFields(oldValues, newValues).length > 0;
+    }
+
+    function scheduleStableChange(machineId, valoresDetectados, source = 'unknown') {
+        const baseValues = pendingStableChanges[machineId]?.baseValues || { ...(lastValues[machineId] || {}) };
+
+        if (pendingStableChanges[machineId]?.timer) {
+            clearTimeout(pendingStableChanges[machineId].timer);
+        }
+
+        pendingStableChanges[machineId] = {
+            baseValues,
+            latestValues: { ...valoresDetectados },
+            source,
+            timer: setTimeout(async () => {
+                const pending = pendingStableChanges[machineId];
+                if (!pending) return;
+
+                try {
+                    let valoresConfirmados = pending.latestValues;
+
+                    // Confirma no Firebase depois da janela de estabilização.
+                    // Assim, se o operador/sincronização corrigir o valor dentro dos 10s,
+                    // o gráfico recebe somente o valor final.
+                    if (typeof maquinasRef !== 'undefined' && maquinasRef) {
+                        const snap = await maquinasRef.child(machineId).once('value');
+                        valoresConfirmados = extractMachineValues(snap.val() || {});
+                    }
+
+                    const changedFields = getChangedFields(pending.baseValues, valoresConfirmados);
+                    delete pendingStableChanges[machineId];
+
+                    if (!changedFields.length) {
+                        console.log(`⏳ Alteração descartada após estabilização: ${machineId}`);
+                        return;
+                    }
+
+                    await registerRealtimeChange(machineId, valoresConfirmados, `${pending.source}_stable_10s`, changedFields, pending.baseValues);
+                } catch (error) {
+                    delete pendingStableChanges[machineId];
+                    console.error(`❌ Erro ao confirmar alteração estável em ${machineId}:`, error);
+                }
+            }, STABLE_CHANGE_DELAY)
+        };
+
+        console.log(`⏳ Aguardando 10s para confirmar alteração em ${machineId}`);
     }
     
     // ===== CARREGAR ESTADO INICIAL =====
@@ -164,13 +214,15 @@
         }
     }
         // ===== REGISTRAR ALTERAÇÃO REAL =====
-    async function registerRealtimeChange(machineId, valoresAtuais, source = 'unknown') {
+    async function registerRealtimeChange(machineId, valoresAtuais, source = 'unknown', changedFields = null, baseValues = null) {
         try {
-            const ultimos = lastValues[machineId] || {};
+            const ultimos = baseValues || lastValues[machineId] || {};
             const agora = Date.now();
             
+            changedFields = Array.isArray(changedFields) ? changedFields : getChangedFields(ultimos, valoresAtuais);
+
             // Se não mudou nada, não registra
-            if (!valuesChanged(ultimos, valoresAtuais)) {
+            if (!changedFields.length) {
                 return false;
             }
             
@@ -212,6 +264,10 @@
                     neck_ring: valoresAtuais.neck_ring - (ultimos.neck_ring ?? 0),
                     funil: valoresAtuais.funil - (ultimos.funil ?? 0)
                 },
+
+                // Campos realmente alterados. O gráfico usa isso para não criar ponto
+                // em Molde quando só Blank mudou, e vice-versa.
+                changedFields: changedFields,
                 
                 tipo: 'real_time',
                 source: source,
@@ -250,7 +306,7 @@
             const machineData = snapshot.val() || {};
             const valoresAtuais = extractMachineValues(machineData);
             
-            await registerRealtimeChange(machineId, valoresAtuais, 'firebase_child_changed');
+            scheduleStableChange(machineId, valoresAtuais, 'firebase_child_changed');
         });
         
         // Se uma máquina aparecer depois
@@ -294,7 +350,7 @@
                 
                 if (valuesChanged(ultimos, valoresAtuais)) {
                     console.log(`🛡️ Polling detectou mudança que ainda não estava no histórico: ${machineId}`);
-                    await registerRealtimeChange(machineId, valoresAtuais, 'safety_polling');
+                    scheduleStableChange(machineId, valoresAtuais, 'safety_polling');
                 }
             }
         } catch (error) {
