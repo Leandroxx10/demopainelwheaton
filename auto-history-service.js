@@ -63,47 +63,37 @@
     }
     
     // ===== HORÁRIO DE SÃO PAULO =====
-    // Fonte única de data/hora local. O timestamp permanece epoch real (UTC),
-    // e somente os campos exibidos/filtrados são calculados em America/Sao_Paulo.
-    const WM_TIME_ZONE = 'America/Sao_Paulo';
-
-    function getSaoPauloParts(date = new Date()) {
+    function getSaoPauloTime() {
+        const now = new Date();
         const parts = new Intl.DateTimeFormat('pt-BR', {
-            timeZone: WM_TIME_ZONE,
+            timeZone: 'America/Sao_Paulo',
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit',
             hour12: false
-        }).formatToParts(date).reduce((acc, part) => {
+        }).formatToParts(now).reduce((acc, part) => {
             if (part.type !== 'literal') acc[part.type] = part.value;
             return acc;
         }, {});
 
-        return {
-            dia: parts.day,
-            mes: parts.month,
-            ano: parts.year,
-            hora: parts.hour === '24' ? '00' : parts.hour,
-            minuto: parts.minute,
-            segundo: parts.second
-        };
-    }
-
-    function getSaoPauloTime() {
-        const now = new Date();
-        const sp = getSaoPauloParts(now);
+        const dia = parts.day;
+        const mes = parts.month;
+        const ano = Number(parts.year);
+        const hora = parts.hour === '24' ? '00' : parts.hour;
+        const minuto = parts.minute;
+        const segundo = parts.second;
 
         return {
-            data: { dia: sp.dia, mes: sp.mes, ano: Number(sp.ano) },
-            hora: { hora: sp.hora, minuto: sp.minuto, segundo: sp.segundo },
+            data: { dia, mes, ano },
+            hora: { hora, minuto, segundo },
             timestamp: now.getTime(),
-            dataBR: `${sp.dia}/${sp.mes}/${sp.ano}`,
-            horaCompleta: `${sp.hora}:${sp.minuto}:${sp.segundo}`,
-            horaMinuto: `${sp.hora}:${sp.minuto}`,
-            horaInt: Number(sp.hora),
-            minutoInt: Number(sp.minuto)
+            dataBR: `${dia}/${mes}/${ano}`,
+            horaCompleta: `${hora}:${minuto}:${segundo}`,
+            horaMinuto: `${hora}:${minuto}`,
+            horaInt: Number(hora),
+            minutoInt: Number(minuto)
         };
     }
-
+    
     // ===== AUXILIARES =====
     function parseNum(val) {
         const num = parseInt(val, 10);

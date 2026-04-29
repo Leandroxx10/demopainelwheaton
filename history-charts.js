@@ -26,6 +26,57 @@
     funil: '#6b7280'
   };
 
+  const END_LABEL_PLUGIN = {
+    id: 'wmEndLineLabels',
+    afterDatasetsDraw(chartInstance) {
+      const ctx = chartInstance.ctx;
+      const area = chartInstance.chartArea;
+      if (!ctx || !area || chartType !== 'line') return;
+      chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
+        const text = dataset.endLabel;
+        if (!text || chartInstance.isDatasetVisible(datasetIndex) === false) return;
+        const meta = chartInstance.getDatasetMeta(datasetIndex);
+        if (!meta || !meta.data || !meta.data.length) return;
+        let lastIndex = -1;
+        for (let i = dataset.data.length - 1; i >= 0; i -= 1) {
+          const value = dataset.data[i];
+          if (value !== null && value !== undefined && Number.isFinite(Number(value))) { lastIndex = i; break; }
+        }
+        if (lastIndex < 0 || !meta.data[lastIndex]) return;
+        const point = meta.data[lastIndex];
+        const pos = point.getProps ? point.getProps(['x', 'y'], true) : { x: point.x, y: point.y };
+        const x = Math.min(pos.x + 32, chartInstance.width - 30);
+        const y = Math.max(area.top + 10, Math.min(pos.y, area.bottom - 10));
+        ctx.save();
+        ctx.font = '700 13px Arial, sans-serif';
+        ctx.fillStyle = dataset.borderColor || '#111827';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x, y);
+        ctx.restore();
+      });
+    }
+  };
+
+  function addShiftBoundaryPoints(points) {
+    const period = getActivePeriod();
+    const range = getPeriodRange(period);
+    if (!points.length || !range || !range.start || !range.end) return points;
+    const result = points.slice();
+    const startLabel = range.start;
+    const endLabel = range.end;
+    const startValues = result[0];
+    const endValues = result[result.length - 1];
+    if (result[0].label !== startLabel) {
+      result.unshift({ label: startLabel, molde: startValues.molde, blank: startValues.blank, neckring: startValues.neckring, funil: startValues.funil, __boundary: true });
+    }
+    if (result[result.length - 1].label !== endLabel) {
+      result.push({ label: endLabel, molde: endValues.molde, blank: endValues.blank, neckring: endValues.neckring, funil: endValues.funil, __boundary: true });
+    }
+    return result;
+  }
+
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -50,93 +101,39 @@
   }
 
 
-  const WM_TIME_ZONE = 'America/Sao_Paulo';
-
   function pad2(v) {
     return String(v).padStart(2, '0');
   }
 
-  function getSaoPauloParts(date = new Date()) {
-    return new Intl.DateTimeFormat('pt-BR', {
-      timeZone: WM_TIME_ZONE,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false
-    }).formatToParts(date).reduce((acc, part) => {
-      if (part.type !== 'literal') acc[part.type] = part.value;
-      return acc;
-    }, {});
-  }
-
   function parseBRDate(value) {
-    const text = String(value || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-      const [y, m, d] = text.split('-').map(Number);
-      return new Date(y, m - 1, d);
-    }
-    const [d, m, y] = text.split('/').map(Number);
+    const [d, m, y] = String(value || '').split('/').map(Number);
     if (!d || !m || !y) return null;
     return new Date(y, m - 1, d);
   }
 
   function formatBRDate(date) {
-    const p = getSaoPauloParts(date);
-    return `${p.day}/${p.month}/${p.year}`;
+    return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
   }
 
   function formatISODate(date) {
-    const p = getSaoPauloParts(date);
-    return `${p.year}-${p.month}-${p.day}`;
-  }
-
-  function brToISO(value) {
-    const text = String(value || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-    const [d, m, y] = text.split('/');
-    return d && m && y ? `${y}-${m}-${d}` : '';
-  }
-
-  function isoToBR(value) {
-    const text = String(value || '').trim();
-    const [y, m, d] = text.split('-');
-    return y && m && d ? `${d}/${m}/${y}` : '';
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   }
 
   function getDateISOFromBR(value) {
-    return brToISO(value);
+    const d = parseBRDate(value);
+    return d ? formatISODate(d) : '';
   }
 
   function addDays(value, days) {
     const d = parseBRDate(value);
     if (!d) return value;
     d.setDate(d.getDate() + days);
-    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+    return formatBRDate(d);
   }
 
   function toMinutes(time) {
     const [h, m] = String(time || '00:00').split(':').map(Number);
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-  }
-
-  function normalizeDateBR(value) {
-    const text = String(value || '').trim();
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return text;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isoToBR(text);
-    return '';
-  }
-
-  function normalizeHour(record, fallbackDate) {
-    if (record.hora && typeof record.hora === 'string' && record.hora.includes(':')) {
-      const [h, m] = record.hora.split(':').map(Number);
-      return { horaNum: h || 0, minutoNum: m || 0, hora: `${pad2(h || 0)}:${pad2(m || 0)}` };
-    }
-
-    const p = getSaoPauloParts(fallbackDate);
-    return {
-      horaNum: Number(p.hour === '24' ? '00' : p.hour),
-      minutoNum: Number(p.minute),
-      hora: `${p.hour === '24' ? '00' : p.hour}:${p.minute}`
-    };
   }
 
   function getActivePeriod() {
@@ -159,32 +156,31 @@
   }
 
   function recordDateBR(record) {
-    const fromData = normalizeDateBR(record.data);
-    if (fromData) return fromData;
+    if (record.data) return record.data;
 
-    const fromISO = normalizeDateBR(record.dataISO);
-    if (fromISO) return fromISO;
+    if (record.dataISO) {
+      const [y, m, d] = String(record.dataISO).split('-');
+      if (y && m && d) return `${d}/${m}/${y}`;
+    }
 
-    if (record.timestamp) return formatBRDate(new Date(Number(record.timestamp)));
+    if (record.timestamp) return formatBRDate(new Date(record.timestamp));
 
     return '';
   }
 
   function normalizeRecord(key, record) {
     const ts = Number(record.timestamp || Date.now());
-    const fallbackDate = new Date(ts);
+    const date = new Date(ts);
+    const horaNum = Number.isFinite(record.horaNum) ? Number(record.horaNum) : date.getHours();
+    const minutoNum = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : date.getMinutes();
     const data = recordDateBR(record);
-    const dataISO = normalizeDateBR(record.dataISO) ? brToISO(normalizeDateBR(record.dataISO)) : getDateISOFromBR(data);
-    const hour = normalizeHour(record, fallbackDate);
-    const horaNum = Number.isFinite(Number(record.horaNum)) ? Number(record.horaNum) : hour.horaNum;
-    const minutoNum = Number.isFinite(Number(record.minutoNum)) ? Number(record.minutoNum) : hour.minutoNum;
 
     return {
       id: key,
       timestamp: ts,
       data,
-      dataISO,
-      hora: record.hora && String(record.hora).includes(':') ? String(record.hora).slice(0, 5) : `${pad2(horaNum)}:${pad2(minutoNum)}`,
+      dataISO: record.dataISO || getDateISOFromBR(data),
+      hora: record.hora || `${pad2(horaNum)}:${pad2(minutoNum)}`,
       horaNum,
       minutoNum,
       molde: Number(record.molde !== undefined ? record.molde : (record.new_molde || 0)),
@@ -306,7 +302,7 @@
 
     if (!inner) return;
 
-    const width = Math.max(1100, count * (chartType === 'bar' ? 80 : 95));
+    const width = Math.max(1180, (count * (chartType === 'bar' ? 80 : 95)) + 160);
     inner.style.minWidth = `${width}px`;
     inner.style.width = `${width}px`;
 
@@ -319,13 +315,13 @@
 
     safeDestroyChart();
 
-    const points = sortRecords(rows).map(item => ({
+    const points = addShiftBoundaryPoints(sortRecords(rows).map(item => ({
       label: item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora,
       molde: item.molde || 0,
       blank: item.blank || 0,
       neckring: item.neck_ring || 0,
       funil: item.funil || 0
-    }));
+    })));
 
     setChartWidth(points.length);
 
@@ -336,13 +332,14 @@
 
       datasets.push({
         label,
-        pointEndLabel: key === 'molde' ? 'M' : (key === 'blank' ? 'BL' : ''),
         data: points.map(p => p[field]),
         borderColor: CORES[key],
         backgroundColor: chartType === 'bar' ? `${CORES[key]}80` : 'transparent',
         borderWidth: 2,
         pointRadius: chartType === 'line' ? 3 : 0,
-        tension: 0.12
+        tension: 0.12,
+        clip: false,
+        endLabel: key === 'molde' ? 'M' : (key === 'blank' ? 'BL' : '')
       });
     }
 
@@ -351,48 +348,8 @@
     addDataset('neckring', 'Neck Rings', 'neckring');
     addDataset('funil', 'Funís', 'funil');
 
-    const endLabelPlugin = {
-      id: 'wmEndLineLabels',
-      afterDatasetsDraw(chartInstance) {
-        if (chartType !== 'line') return;
-        const { ctx, chartArea } = chartInstance;
-        if (!ctx || !chartArea) return;
-
-        chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
-          const text = dataset.pointEndLabel;
-          if (!text) return;
-
-          const meta = chartInstance.getDatasetMeta(datasetIndex);
-          if (!meta || meta.hidden) return;
-
-          let index = -1;
-          for (let i = dataset.data.length - 1; i >= 0; i--) {
-            const value = dataset.data[i];
-            if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
-              index = i;
-              break;
-            }
-          }
-          if (index < 0 || !meta.data[index]) return;
-
-          const point = meta.data[index];
-          const x = Math.min(point.x + 10, chartArea.right - 8);
-          const y = Math.max(chartArea.top + 12, Math.min(point.y, chartArea.bottom - 8));
-
-          ctx.save();
-          ctx.font = '700 13px Arial, sans-serif';
-          ctx.fillStyle = dataset.borderColor || '#111827';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(text, x, y);
-          ctx.restore();
-        });
-      }
-    };
-
     chart = new Chart(canvas.getContext('2d'), {
       type: chartType,
-      plugins: [endLabelPlugin],
       data: {
         labels: points.map(p => p.label),
         datasets
@@ -402,7 +359,7 @@
         maintainAspectRatio: false,
         animation: false,
         layout: {
-          padding: { top: 78 }
+          padding: { top: 78, right: 82 }
         },
         interaction: {
           mode: 'index',
@@ -421,13 +378,15 @@
           title: {
             display: datasets.length === 0,
             text: 'Selecione Moldes, Blanks, Neck Rings ou Funís para visualizar'
-          }
+          },
+          wmEndLineLabels: {}
         },
         scales: {
           y: { beginAtZero: true, ticks: { stepSize: 1 } },
           x: { ticks: { autoSkip: false, maxRotation: 0 } }
         }
-      }
+      },
+      plugins: [END_LABEL_PLUGIN]
     });
 
     window.historyChart = chart;
@@ -579,14 +538,14 @@
     if (!select) return;
 
     select.innerHTML = '';
-    const todayBR = formatBRDate(new Date());
-    const today = parseBRDate(todayBR);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
 
-      const value = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+      const value = formatBRDate(d);
       const option = document.createElement('option');
       option.value = value;
       option.textContent = value + (i === 0 ? ' (Hoje)' : '');
