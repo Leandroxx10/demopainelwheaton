@@ -165,10 +165,52 @@
         }
     }
         // ===== REGISTRAR ALTERAÇÃO REAL =====
-    async function saveRealtimeChangeNow(machineId, valoresAtuais, ultimos, source = 'unknown') {
+    // Debounce independente por máquina e por campo.
+    // Corrige o caso em que molde + blank mudam juntos: cada campo confirma sozinho,
+    // sem cancelar o outro e sem bloquear a gravação do histórico.
+    const HISTORY_FIELDS = ['molde', 'blank', 'neck_ring', 'funil'];
+
+    function changedFieldsBetween(baseValues, currentValues) {
+        return HISTORY_FIELDS.filter(field => (currentValues?.[field] ?? 0) !== (baseValues?.[field] ?? 0));
+    }
+
+    function ensurePendingMachine(machineId) {
+        if (!pendingRealtimeChanges[machineId]) pendingRealtimeChanges[machineId] = { fields: {} };
+        if (!pendingRealtimeChanges[machineId].fields) pendingRealtimeChanges[machineId].fields = {};
+        return pendingRealtimeChanges[machineId];
+    }
+
+    function clearPendingField(machineId, field) {
+        const bucket = pendingRealtimeChanges[machineId];
+        if (!bucket?.fields?.[field]) return;
+        if (bucket.fields[field].timer) clearTimeout(bucket.fields[field].timer);
+        delete bucket.fields[field];
+        if (!Object.keys(bucket.fields).length) delete pendingRealtimeChanges[machineId];
+    }
+
+    function buildSparseFieldValues(fullValues, changedFields) {
+        // Para o gráfico: campo que não mudou fica null no registro real_time.
+        // Assim, alterar blank não cria ponto novo em molde, e vice-versa.
+        const output = {};
+        HISTORY_FIELDS.forEach(field => {
+            output[field] = changedFields.includes(field) ? (fullValues[field] ?? 0) : null;
+        });
+        return output;
+    }
+
+    async function saveRealtimeChangeNow(machineId, valoresAtuais, baseValues, changedFields, source = 'unknown') {
         try {
             const agora = Date.now();
             const sp = getSaoPauloTime();
+            const sparseValues = buildSparseFieldValues(valoresAtuais, changedFields);
+            const mudancas = {};
+
+            HISTORY_FIELDS.forEach(field => {
+                mudancas[field] = changedFields.includes(field)
+                    ? ((valoresAtuais[field] ?? 0) - (baseValues?.[field] ?? 0))
+                    : 0;
+            });
+
             const registro = {
                 machineId: machineId,
                 data: sp.dataBR,
@@ -178,26 +220,41 @@
                 horaNum: sp.horaInt,
                 minutoNum: sp.minutoInt,
                 timestamp: sp.timestamp,
-                molde: valoresAtuais.molde,
-                blank: valoresAtuais.blank,
-                neck_ring: valoresAtuais.neck_ring,
-                funil: valoresAtuais.funil,
-                mudancas: {
-                    molde: valoresAtuais.molde - (ultimos.molde ?? 0),
-                    blank: valoresAtuais.blank - (ultimos.blank ?? 0),
-                    neck_ring: valoresAtuais.neck_ring - (ultimos.neck_ring ?? 0),
-                    funil: valoresAtuais.funil - (ultimos.funil ?? 0)
+
+                // Valores para o gráfico. Só o campo confirmado recebe ponto.
+                molde: sparseValues.molde,
+                blank: sparseValues.blank,
+                neck_ring: sparseValues.neck_ring,
+                funil: sparseValues.funil,
+
+                // Snapshot completo para auditoria/tabela/debug sem perder contexto.
+                snapshot: {
+                    molde: valoresAtuais.molde,
+                    blank: valoresAtuais.blank,
+                    neck_ring: valoresAtuais.neck_ring,
+                    funil: valoresAtuais.funil
                 },
+
+                changedFields: changedFields,
+                mudancas: mudancas,
                 tipo: 'real_time',
                 source: source,
+                debounce_mode: 'per_machine_per_field',
                 confirmed_after_ms: CHANGE_CONFIRMATION_DELAY,
                 created_at: new Date().toISOString()
             };
-            const chave = `rt_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(sp.timestamp).slice(-3) }`;
+
+            const chave = `rt_${sp.data.ano}${sp.data.mes}${sp.data.dia}_${sp.hora.hora}${sp.hora.minuto}${sp.hora.segundo}_${String(sp.timestamp).slice(-3)}`;
             await historicoRef.child(machineId).child(chave).set(registro);
-            lastValues[machineId] = { ...valoresAtuais, timestamp: agora };
-            lastRealTimeRecord[machineId] = { timestamp: agora, valores: { ...valoresAtuais } };
-            console.log(`✅ Histórico em tempo real salvo após confirmação: ${machineId}`);
+
+            // Atualiza apenas os campos confirmados. Os outros continuam com sua base própria.
+            const previous = lastValues[machineId] || {};
+            const nextLast = { ...previous };
+            changedFields.forEach(field => { nextLast[field] = valoresAtuais[field] ?? 0; });
+            lastValues[machineId] = { ...nextLast, timestamp: agora };
+            lastRealTimeRecord[machineId] = { timestamp: agora, valores: { ...lastValues[machineId] } };
+
+            console.log(`✅ Histórico salvo após debounce por campo: ${machineId} [${changedFields.join(', ')}]`);
             return true;
         } catch (error) {
             console.error(`❌ Erro ao registrar alteração em ${machineId}:`, error);
@@ -205,23 +262,63 @@
         }
     }
 
-    async function confirmAndSavePendingChange(machineId) {
-        const pending = pendingRealtimeChanges[machineId];
-        if (!pending) return false;
+    async function confirmAndSavePendingField(machineId, field) {
+        const pendingField = pendingRealtimeChanges[machineId]?.fields?.[field];
+        if (!pendingField) return false;
+
         try {
             const snapshot = await maquinasRef.child(machineId).once("value");
             const machineData = snapshot.val() || {};
             const valoresConfirmados = extractMachineValues(machineData);
-            const baseValues = pending.baseValues || lastValues[machineId] || {};
-            delete pendingRealtimeChanges[machineId];
-            if (!valuesChanged(baseValues, valoresConfirmados)) {
-                console.log(`⏳ Alteração descartada em ${machineId}: voltou ao valor anterior dentro de ${CHANGE_CONFIRMATION_DELAY / 1000}s.`);
+            const currentFieldValue = valoresConfirmados[field] ?? 0;
+
+            // Descarta se voltou para o valor antigo ou se mudou de novo durante os 10s.
+            if (currentFieldValue === (pendingField.baseValue ?? 0)) {
+                clearPendingField(machineId, field);
+                console.log(`⏳ Alteração descartada em ${machineId}.${field}: voltou ao valor anterior.`);
                 return false;
             }
-            return await saveRealtimeChangeNow(machineId, valoresConfirmados, baseValues, pending.source || 'confirmed_change');
+
+            if (currentFieldValue !== (pendingField.observedValue ?? 0)) {
+                // Valor mudou novamente. Reinicia o debounce desse campo, sem afetar os outros.
+                pendingField.baseValue = pendingField.baseValue ?? 0;
+                pendingField.observedValue = currentFieldValue;
+                pendingField.createdAt = Date.now();
+                pendingField.timer = setTimeout(() => confirmAndSavePendingField(machineId, field), CHANGE_CONFIRMATION_DELAY);
+                console.log(`⏳ ${machineId}.${field} mudou durante o debounce. Aguardando mais ${CHANGE_CONFIRMATION_DELAY / 1000}s.`);
+                return true;
+            }
+
+            // Agrupa outros campos da mesma máquina que também já estabilizaram.
+            const bucket = pendingRealtimeChanges[machineId];
+            const fieldsToSave = [];
+            const baseValues = { ...(lastValues[machineId] || {}) };
+            const now = Date.now();
+            let source = pendingField.source || 'confirmed_field_change';
+
+            Object.keys(bucket.fields).forEach(candidateField => {
+                const item = bucket.fields[candidateField];
+                const candidateValue = valoresConfirmados[candidateField] ?? 0;
+                const stableLongEnough = now - (item.createdAt || 0) >= CHANGE_CONFIRMATION_DELAY - 50;
+
+                if (
+                    stableLongEnough &&
+                    candidateValue === (item.observedValue ?? 0) &&
+                    candidateValue !== (item.baseValue ?? 0)
+                ) {
+                    fieldsToSave.push(candidateField);
+                    baseValues[candidateField] = item.baseValue ?? 0;
+                    source = item.source || source;
+                }
+            });
+
+            fieldsToSave.forEach(candidateField => clearPendingField(machineId, candidateField));
+
+            if (!fieldsToSave.length) return false;
+            return await saveRealtimeChangeNow(machineId, valoresConfirmados, baseValues, fieldsToSave, source);
         } catch (error) {
-            delete pendingRealtimeChanges[machineId];
-            console.error(`❌ Erro ao confirmar alteração pendente em ${machineId}:`, error);
+            clearPendingField(machineId, field);
+            console.error(`❌ Erro ao confirmar alteração pendente em ${machineId}.${field}:`, error);
             return false;
         }
     }
@@ -229,22 +326,39 @@
     async function registerRealtimeChange(machineId, valoresAtuais, source = 'unknown') {
         try {
             const ultimos = lastValues[machineId] || {};
-            if (!valuesChanged(ultimos, valoresAtuais)) {
-                if (pendingRealtimeChanges[machineId]) {
-                    clearTimeout(pendingRealtimeChanges[machineId].timer);
-                    delete pendingRealtimeChanges[machineId];
+            const camposAlterados = changedFieldsBetween(ultimos, valoresAtuais);
+
+            // Cancela timers de campos que voltaram para o valor base.
+            HISTORY_FIELDS.forEach(field => {
+                if (!camposAlterados.includes(field) && pendingRealtimeChanges[machineId]?.fields?.[field]) {
+                    clearPendingField(machineId, field);
                 }
-                return false;
-            }
-            if (pendingRealtimeChanges[machineId]?.timer) clearTimeout(pendingRealtimeChanges[machineId].timer);
-            pendingRealtimeChanges[machineId] = {
-                baseValues: { ...ultimos },
-                observedValues: { ...valoresAtuais },
-                source,
-                createdAt: Date.now(),
-                timer: setTimeout(() => confirmAndSavePendingChange(machineId), CHANGE_CONFIRMATION_DELAY)
-            };
-            console.log(`⏳ Alteração aguardando confirmação de ${CHANGE_CONFIRMATION_DELAY / 1000}s: ${machineId} (${source})`);
+            });
+
+            if (!camposAlterados.length) return false;
+
+            const bucket = ensurePendingMachine(machineId);
+
+            camposAlterados.forEach(field => {
+                const currentValue = valoresAtuais[field] ?? 0;
+                const existing = bucket.fields[field];
+
+                // Se o mesmo valor já está aguardando, não reinicia o timer.
+                if (existing && existing.observedValue === currentValue) return;
+
+                if (existing?.timer) clearTimeout(existing.timer);
+
+                bucket.fields[field] = {
+                    baseValue: existing ? existing.baseValue : (ultimos[field] ?? 0),
+                    observedValue: currentValue,
+                    source,
+                    createdAt: Date.now(),
+                    timer: setTimeout(() => confirmAndSavePendingField(machineId, field), CHANGE_CONFIRMATION_DELAY)
+                };
+
+                console.log(`⏳ Aguardando ${CHANGE_CONFIRMATION_DELAY / 1000}s para confirmar ${machineId}.${field}: ${bucket.fields[field].baseValue} → ${currentValue}`);
+            });
+
             return true;
         } catch (error) {
             console.error(`❌ Erro ao agendar alteração em ${machineId}:`, error);

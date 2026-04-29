@@ -285,10 +285,10 @@
       pointMap.set(label, {
         label,
         isBoundary: false,
-        molde: item.molde || 0,
-        blank: item.blank || 0,
-        neckring: item.neck_ring || 0,
-        funil: item.funil || 0
+        molde: item.molde === null || item.molde === undefined ? null : Number(item.molde || 0),
+        blank: item.blank === null || item.blank === undefined ? null : Number(item.blank || 0),
+        neckring: item.neck_ring === null || item.neck_ring === undefined ? null : Number(item.neck_ring || 0),
+        funil: item.funil === null || item.funil === undefined ? null : Number(item.funil || 0)
       });
     });
 
