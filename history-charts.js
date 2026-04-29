@@ -26,57 +26,6 @@
     funil: '#6b7280'
   };
 
-  const END_LABEL_PLUGIN = {
-    id: 'wmEndLineLabels',
-    afterDatasetsDraw(chartInstance) {
-      const ctx = chartInstance.ctx;
-      const area = chartInstance.chartArea;
-      if (!ctx || !area || chartType !== 'line') return;
-      chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
-        const text = dataset.endLabel;
-        if (!text || chartInstance.isDatasetVisible(datasetIndex) === false) return;
-        const meta = chartInstance.getDatasetMeta(datasetIndex);
-        if (!meta || !meta.data || !meta.data.length) return;
-        let lastIndex = -1;
-        for (let i = dataset.data.length - 1; i >= 0; i -= 1) {
-          const value = dataset.data[i];
-          if (value !== null && value !== undefined && Number.isFinite(Number(value))) { lastIndex = i; break; }
-        }
-        if (lastIndex < 0 || !meta.data[lastIndex]) return;
-        const point = meta.data[lastIndex];
-        const pos = point.getProps ? point.getProps(['x', 'y'], true) : { x: point.x, y: point.y };
-        const x = Math.min(pos.x + 32, chartInstance.width - 30);
-        const y = Math.max(area.top + 10, Math.min(pos.y, area.bottom - 10));
-        ctx.save();
-        ctx.font = '700 13px Arial, sans-serif';
-        ctx.fillStyle = dataset.borderColor || '#111827';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, x, y);
-        ctx.restore();
-      });
-    }
-  };
-
-  function addShiftBoundaryPoints(points) {
-    const period = getActivePeriod();
-    const range = getPeriodRange(period);
-    if (!points.length || !range || !range.start || !range.end) return points;
-    const result = points.slice();
-    const startLabel = range.start;
-    const endLabel = range.end;
-    const startValues = result[0];
-    const endValues = result[result.length - 1];
-    if (result[0].label !== startLabel) {
-      result.unshift({ label: startLabel, molde: startValues.molde, blank: startValues.blank, neckring: startValues.neckring, funil: startValues.funil, __boundary: true });
-    }
-    if (result[result.length - 1].label !== endLabel) {
-      result.push({ label: endLabel, molde: endValues.molde, blank: endValues.blank, neckring: endValues.neckring, funil: endValues.funil, __boundary: true });
-    }
-    return result;
-  }
-
-
   function $(id) {
     return document.getElementById(id);
   }
@@ -302,11 +251,22 @@
 
     if (!inner) return;
 
-    const width = Math.max(1180, (count * (chartType === 'bar' ? 80 : 95)) + 160);
+    const width = Math.max(1100, count * (chartType === 'bar' ? 80 : 95));
     inner.style.minWidth = `${width}px`;
     inner.style.width = `${width}px`;
 
     if (scroll) scroll.scrollLeft = 0;
+  }
+
+  function getChartBoundaryLabels(period) {
+    const range = getPeriodRange(period);
+    const startLabel = range.start;
+    const endLabel = range.includeNextDate ? `${range.end} (${addDays(currentDate, 1).slice(0, 5)})` : range.end;
+    return { startLabel, endLabel };
+  }
+
+  function normalizePointLabel(item) {
+    return item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora;
   }
 
   function buildChart(rows) {
@@ -315,15 +275,41 @@
 
     safeDestroyChart();
 
-    const points = addShiftBoundaryPoints(sortRecords(rows).map(item => ({
-      label: item.data && item.data !== currentDate ? `${item.hora} (${item.data.slice(0, 5)})` : item.hora,
-      molde: item.molde || 0,
-      blank: item.blank || 0,
-      neckring: item.neck_ring || 0,
-      funil: item.funil || 0
-    })));
+    const period = getActivePeriod();
+    const sortedRows = sortRecords(rows || [], period);
+    const boundary = getChartBoundaryLabels(period);
+    const pointMap = new Map();
 
-    setChartWidth(points.length);
+    sortedRows.forEach(item => {
+      const label = normalizePointLabel(item);
+      pointMap.set(label, {
+        label,
+        isBoundary: false,
+        molde: item.molde || 0,
+        blank: item.blank || 0,
+        neckring: item.neck_ring || 0,
+        funil: item.funil || 0
+      });
+    });
+
+    const points = [];
+
+    // Mantém o eixo começando exatamente no início do período/turno, mas sem desenhar linha falsa.
+    points.push({ label: boundary.startLabel, isBoundary: true, molde: null, blank: null, neckring: null, funil: null });
+
+    pointMap.forEach(point => {
+      if (point.label !== boundary.startLabel && point.label !== boundary.endLabel) points.push(point);
+      else if (point.label === boundary.startLabel) points[0] = point;
+    });
+
+    // Mantém espaço visual à direita até o final do período/turno, sem prolongar a linha até esse horário.
+    if (!pointMap.has(boundary.endLabel)) {
+      points.push({ label: boundary.endLabel, isBoundary: true, molde: null, blank: null, neckring: null, funil: null });
+    } else if (!points.some(p => p.label === boundary.endLabel)) {
+      points.push(pointMap.get(boundary.endLabel));
+    }
+
+    setChartWidth(Math.max(points.length + 1, 8));
 
     const datasets = [];
 
@@ -336,10 +322,10 @@
         borderColor: CORES[key],
         backgroundColor: chartType === 'bar' ? `${CORES[key]}80` : 'transparent',
         borderWidth: 2,
-        pointRadius: chartType === 'line' ? 3 : 0,
+        pointRadius: ctx => points[ctx.dataIndex]?.isBoundary ? 0 : (chartType === 'line' ? 3 : 0),
+        pointHoverRadius: ctx => points[ctx.dataIndex]?.isBoundary ? 0 : 5,
         tension: 0.12,
-        clip: false,
-        endLabel: key === 'molde' ? 'M' : (key === 'blank' ? 'BL' : '')
+        spanGaps: false
       });
     }
 
@@ -347,6 +333,61 @@
     addDataset('blank', 'Blanks', 'blank');
     addDataset('neckring', 'Neck Rings', 'neckring');
     addDataset('funil', 'Funís', 'funil');
+
+    const endLabelsPlugin = {
+      id: 'wmEndLabels',
+      afterDatasetsDraw(chartInstance) {
+        if (chartType !== 'line') return;
+
+        const { ctx, chartArea } = chartInstance;
+        const labelInfo = [];
+
+        chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
+          if (!['Moldes', 'Blanks'].includes(dataset.label)) return;
+          if (!chartInstance.isDatasetVisible(datasetIndex)) return;
+
+          const data = dataset.data || [];
+          let lastIndex = -1;
+          for (let i = data.length - 1; i >= 0; i--) {
+            if (data[i] !== null && data[i] !== undefined && Number.isFinite(Number(data[i]))) {
+              lastIndex = i;
+              break;
+            }
+          }
+          if (lastIndex < 0) return;
+
+          const point = chartInstance.getDatasetMeta(datasetIndex).data[lastIndex];
+          if (!point) return;
+
+          labelInfo.push({
+            key: dataset.label === 'Moldes' ? 'M' : 'BL',
+            value: Number(data[lastIndex]),
+            color: dataset.borderColor,
+            x: point.x,
+            y: point.y
+          });
+        });
+
+        if (!labelInfo.length) return;
+
+        const hasTie = labelInfo.length >= 2 && labelInfo.every(item => item.value === labelInfo[0].value);
+        const baseX = Math.max(...labelInfo.map(item => item.x)) + 28;
+
+        ctx.save();
+        ctx.font = 'bold 13px Arial';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+
+        labelInfo.forEach((item, index) => {
+          ctx.fillStyle = item.color;
+          const x = hasTie ? baseX + (index * 28) : item.x + 28;
+          const y = Math.min(Math.max(item.y, chartArea.top + 8), chartArea.bottom - 8);
+          ctx.fillText(item.key, x, y);
+        });
+
+        ctx.restore();
+      }
+    };
 
     chart = new Chart(canvas.getContext('2d'), {
       type: chartType,
@@ -359,7 +400,7 @@
         maintainAspectRatio: false,
         animation: false,
         layout: {
-          padding: { top: 78, right: 82 }
+          padding: { top: 78, right: 80 }
         },
         interaction: {
           mode: 'index',
@@ -373,20 +414,20 @@
           },
           tooltip: {
             mode: 'index',
-            intersect: false
+            intersect: false,
+            filter: ctx => ctx.raw !== null && ctx.raw !== undefined
           },
           title: {
             display: datasets.length === 0,
             text: 'Selecione Moldes, Blanks, Neck Rings ou Funís para visualizar'
-          },
-          wmEndLineLabels: {}
+          }
         },
         scales: {
           y: { beginAtZero: true, ticks: { stepSize: 1 } },
           x: { ticks: { autoSkip: false, maxRotation: 0 } }
         }
       },
-      plugins: [END_LABEL_PLUGIN]
+      plugins: [endLabelsPlugin]
     });
 
     window.historyChart = chart;
