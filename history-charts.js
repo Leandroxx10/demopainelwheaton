@@ -86,6 +86,36 @@
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
   }
 
+  // Botão 24h = janela móvel: horário atual do sistema até 24 horas atrás.
+  function getRolling24hWindow() {
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    return { startMs: start.getTime(), endMs: end.getTime() };
+  }
+
+  function timestampFromRecordDateTime(record) {
+    if (!record) return 0;
+    const timestamp = Number(record.timestamp || 0);
+    if (timestamp > 0) return timestamp;
+
+    let y, m, d;
+    if (record.dataISO && /^\d{4}-\d{2}-\d{2}$/.test(String(record.dataISO))) {
+      [y, m, d] = String(record.dataISO).split('-').map(Number);
+    } else if (record.data && /^\d{2}\/\d{2}\/\d{4}$/.test(String(record.data))) {
+      const parts = String(record.data).split('/').map(Number);
+      d = parts[0];
+      m = parts[1];
+      y = parts[2];
+    }
+
+    if (!y || !m || !d) return 0;
+    const parsedMinutes = toMinutes(record.hora || '00:00');
+    const hh = Number.isFinite(Number(record.horaNum)) ? Number(record.horaNum) : Math.floor(parsedMinutes / 60);
+    const mm = Number.isFinite(Number(record.minutoNum)) ? Number(record.minutoNum) : parsedMinutes % 60;
+    const built = new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0);
+    return Number.isNaN(built.getTime()) ? 0 : built.getTime();
+  }
+
 
   function normalizeSelectedDate(value) {
     const raw = String(value || '').trim();
@@ -175,7 +205,7 @@
     if (period === 'shift2' || period === 'turno2') return { start: '14:00', end: '22:00', includeNextDate: false };
     if (period === 'shift3' || period === 'turno3') return { start: '22:00', end: '06:00', includeNextDate: true };
 
-    return { start: '00:00', end: '23:59', includeNextDate: false };
+    return { start: 'rolling', end: 'rolling', includeNextDate: false, rolling24h: true };
   }
 
   function recordDateBR(record) {
@@ -220,6 +250,8 @@
   }
 
   function chronologicalOrder(record, period = getActivePeriod()) {
+    if (period === '24h') return timestampFromRecordDateTime(record);
+
     const minutes = (Number(record.horaNum) || 0) * 60 + (Number(record.minutoNum) || 0);
     const range = getPeriodRange(period);
     const start = toMinutes(range.start);
@@ -275,6 +307,14 @@
       const normalized = normalizeRecord(key, raw);
       // Somente dados reais: ignora snapshots horários, snapshot atual e registros artificiais.
       if (normalized.tipo !== 'real_time') return;
+
+      if (period === '24h') {
+        const { startMs, endMs } = getRolling24hWindow();
+        const ts = timestampFromRecordDateTime(normalized);
+        if (ts >= startMs && ts <= endMs) result.push(normalized);
+        return;
+      }
+
       if (acceptedBR.has(normalized.data) || acceptedISO.has(normalized.dataISO) || timestampMatchesDate(normalized.timestamp, dateBR, selected.iso || getDateISOFromBR(dateBR))) {
         result.push(normalized);
       }
@@ -287,10 +327,11 @@
     const range = getPeriodRange(period);
 
     if (period === '24h') {
-      const selected = normalizeSelectedDate(currentDate);
-      const br = selected.br || currentDate;
-      const iso = selected.iso || getDateISOFromBR(br);
-      return rows.filter(r => r.data === br || r.dataISO === iso || timestampMatchesDate(r.timestamp, br, iso));
+      const { startMs, endMs } = getRolling24hWindow();
+      return rows.filter(r => {
+        const ts = timestampFromRecordDateTime(r);
+        return ts >= startMs && ts <= endMs;
+      });
     }
 
     const start = toMinutes(range.start);
