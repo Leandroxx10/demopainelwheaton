@@ -50,8 +50,41 @@
   }
 
 
+  const SAO_PAULO_TZ = 'America/Sao_Paulo';
+
   function pad2(v) {
     return String(v).padStart(2, '0');
+  }
+
+  function getSaoPauloParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: SAO_PAULO_TZ,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).formatToParts(date).reduce((acc, part) => {
+      if (part.type !== 'literal') acc[part.type] = part.value;
+      return acc;
+    }, {});
+
+    if (parts.hour === '24') parts.hour = '00';
+    return parts;
+  }
+
+  function saoPauloDateInfo(timestamp = Date.now()) {
+    const p = getSaoPauloParts(new Date(Number(timestamp) || Date.now()));
+    return {
+      dataBR: `${p.day}/${p.month}/${p.year}`,
+      dataISO: `${p.year}-${p.month}-${p.day}`,
+      hora: `${p.hour}:${p.minute}`,
+      horaNum: parseInt(p.hour, 10) || 0,
+      minutoNum: parseInt(p.minute, 10) || 0
+    };
+  }
+
+  function todayInSaoPauloDate() {
+    const p = getSaoPauloParts(new Date());
+    return new Date(Number(p.year), Number(p.month) - 1, Number(p.day));
   }
 
   function parseBRDate(value) {
@@ -112,23 +145,23 @@
       if (y && m && d) return `${d}/${m}/${y}`;
     }
 
-    if (record.timestamp) return formatBRDate(new Date(record.timestamp));
+    if (record.timestamp) return saoPauloDateInfo(record.timestamp).dataBR;
 
     return '';
   }
 
   function normalizeRecord(key, record) {
     const ts = Number(record.timestamp || Date.now());
-    const date = new Date(ts);
-    const horaNum = Number.isFinite(record.horaNum) ? Number(record.horaNum) : date.getHours();
-    const minutoNum = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : date.getMinutes();
-    const data = recordDateBR(record);
+    const sp = saoPauloDateInfo(ts);
+    const horaNum = Number.isFinite(record.horaNum) ? Number(record.horaNum) : sp.horaNum;
+    const minutoNum = Number.isFinite(record.minutoNum) ? Number(record.minutoNum) : sp.minutoNum;
+    const data = recordDateBR(record) || sp.dataBR;
 
     return {
       id: key,
       timestamp: ts,
       data,
-      dataISO: record.dataISO || getDateISOFromBR(data),
+      dataISO: record.dataISO || getDateISOFromBR(data) || sp.dataISO,
       hora: record.hora || `${pad2(horaNum)}:${pad2(minutoNum)}`,
       horaNum,
       minutoNum,
@@ -483,7 +516,7 @@
     if (!select) return;
 
     select.innerHTML = '';
-    const today = new Date();
+    const today = todayInSaoPauloDate();
     today.setHours(0, 0, 0, 0);
 
     for (let i = 0; i < 30; i++) {

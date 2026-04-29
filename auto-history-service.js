@@ -63,32 +63,41 @@
     }
     
     // ===== HORÁRIO DE SÃO PAULO =====
+    // Firebase armazena timestamp em UTC (Date.now()). A data/hora usada no histórico
+    // é sempre calculada em America/Sao_Paulo para não virar o dia em UTC.
+    const SAO_PAULO_TZ = 'America/Sao_Paulo';
+
+    function getSaoPauloParts(date = new Date()) {
+        const parts = new Intl.DateTimeFormat('pt-BR', {
+            timeZone: SAO_PAULO_TZ,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false
+        }).formatToParts(date).reduce((acc, part) => {
+            if (part.type !== 'literal') acc[part.type] = part.value;
+            return acc;
+        }, {});
+
+        if (parts.hour === '24') parts.hour = '00';
+        return parts;
+    }
+
     function getSaoPauloTime() {
         const now = new Date();
-        
-        // São Paulo UTC-3
-        const sp = new Date(now.getTime() - (3 * 60 * 60 * 1000));
-        
+        const p = getSaoPauloParts(now);
+
         return {
-            data: {
-                dia: String(sp.getUTCDate()).padStart(2, '0'),
-                mes: String(sp.getUTCMonth() + 1).padStart(2, '0'),
-                ano: sp.getUTCFullYear()
-            },
-            hora: {
-                hora: String(sp.getUTCHours()).padStart(2, '0'),
-                minuto: String(sp.getUTCMinutes()).padStart(2, '0'),
-                segundo: String(sp.getUTCSeconds()).padStart(2, '0')
-            },
-            timestamp: sp.getTime(),
-            dataBR: `${String(sp.getUTCDate()).padStart(2, '0')}/${String(sp.getUTCMonth() + 1).padStart(2, '0')}/${sp.getUTCFullYear()}`,
-            horaCompleta: `${String(sp.getUTCHours()).padStart(2, '0')}:${String(sp.getUTCMinutes()).padStart(2, '0')}:${String(sp.getUTCSeconds()).padStart(2, '0')}`,
-            horaMinuto: `${String(sp.getUTCHours()).padStart(2, '0')}:${String(sp.getUTCMinutes()).padStart(2, '0')}`,
-            horaInt: sp.getUTCHours(),
-            minutoInt: sp.getUTCMinutes()
+            data: { dia: p.day, mes: p.month, ano: p.year },
+            hora: { hora: p.hour, minuto: p.minute, segundo: p.second },
+            timestamp: now.getTime(),
+            dataBR: `${p.day}/${p.month}/${p.year}`,
+            horaCompleta: `${p.hour}:${p.minute}:${p.second}`,
+            horaMinuto: `${p.hour}:${p.minute}`,
+            horaInt: parseInt(p.hour, 10),
+            minutoInt: parseInt(p.minute, 10)
         };
     }
-    
+
     // ===== AUXILIARES =====
     function parseNum(val) {
         const num = parseInt(val, 10);
